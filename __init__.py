@@ -35,6 +35,57 @@ r2d = 180/np.pi
 T0 = 290
 
 
+def listify(input_):
+  """
+  make into a list
+  """
+  return make_array_like(input_, 'list')
+
+
+def tuplify(input_):
+  """
+  make into a tuple
+  """
+  return make_array_like(input_, 'tuple')
+
+
+def arrayify(input_):
+  """
+  make into array
+  """
+  return make_array_like(input_, 'np.ndarray')
+
+
+def make_array_like(input_, array_like):
+  """
+  make an input into an array like
+  """
+
+  if isinstance(input, eval(array_like)):
+    return np.copy(input_)
+
+  # from single elements to array of 1 element
+  if isinstance(input_, (str, int, float, np.float_, np.int_)):
+    if array_like == 'list':
+      output = [input_,]
+    elif array_like == 'tuple':
+      output = (input_,)
+    elif array_like == 'np.ndarray':
+      output = np.ndarray([input_,])
+
+  # interchange different array types
+  else:
+    if array_like == 'list' or array_like == 'np.ndarray':
+      output = [*input_,]
+      if array_like == 'np.ndarray':
+        output = np.array(output)
+    elif array_like == 'tuple':
+      output = (*input_)
+
+  return output
+
+
+
 def color_vector(nof_points, base_color, os=0.25):
   """
   determine a color vector from dark to light around a center color
@@ -65,7 +116,6 @@ def color_vector(nof_points, base_color, os=0.25):
     cvec[icenter:, iax] = np.linspace(base_color[iax], end_color[iax], nof_points - icenter)
 
   return cvec
-
 
 
 def strip_all_spaces(strarrlike_in):
