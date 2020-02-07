@@ -19,6 +19,7 @@ import warnings as wn # noqa
 from functools import reduce
 import warnings
 import datetime as dt
+import pdb
 
 # import all subfunctions
 from .coordinate_transforms import *  # noqa
@@ -33,6 +34,15 @@ amax_size_inches = (9.82*np.sqrt(2), 9.82)
 d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
+
+
+def substr2index(substring, strlist):
+  """
+  find the indices of a certain substring
+  """
+  index = np.argwhere([substring.lower() in elm.lower() for elm in strlist]).item()
+
+  return index
 
 
 def listify(input_):
@@ -60,30 +70,20 @@ def make_array_like(input_, array_like):
   """
   make an input into an array like
   """
-
-  if isinstance(input, eval(array_like)):
-    return np.copy(input_)
-
+  output = np.copy(input_)
   # from single elements to array of 1 element
   if isinstance(input_, (str, int, float, np.float_, np.int_)):
-    if array_like == 'list':
-      output = [input_,]
-    elif array_like == 'tuple':
-      output = (input_,)
-    elif array_like == 'np.ndarray':
-      output = np.ndarray([input_,])
+    output = [input_,]
 
-  # interchange different array types
-  else:
-    if array_like == 'list' or array_like == 'np.ndarray':
-      output = [*input_,]
-      if array_like == 'np.ndarray':
-        output = np.array(output)
-    elif array_like == 'tuple':
-      output = (*input_)
+  # convert to the right type
+  if array_like == 'list' or array_like == 'np.ndarray':
+    output = [*output,]
+    if array_like == 'np.ndarray':
+      output = np.array(output)
+  elif array_like == 'tuple':
+    output = (*output,)
 
   return output
-
 
 
 def color_vector(nof_points, base_color, os=0.25):
