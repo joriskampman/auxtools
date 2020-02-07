@@ -9,6 +9,7 @@ from tkinter import Tk, filedialog
 import matplotlib.pyplot as plt
 import os
 from scipy.io import loadmat
+from scipy.interpolate import interp1d
 import numexpr as ne
 
 from scipy.fftpack import fftshift
@@ -32,6 +33,53 @@ amax_size_inches = (9.82*np.sqrt(2), 9.82)
 d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
+
+
+def color_vector(nof_points, base_color, os=0.25):
+  """
+  determine a color vector from dark to light around a center color
+  """
+  if isinstance(base_color, (list, tuple)):
+    base_color = np.array(base_color, dtype=float)
+  elif isinstance(base_color, str):
+    colordict = {'r': [1., 0., 0],
+                 'g': [0., 1., 0.],
+                 'b': [0., 0., 1.],
+                 'c': [0., 1., 1.],
+                 'm': [1., 0., 1.],
+                 'y': [1., 1., 0.],
+                 'w': [1., 1., 1.],
+                 'k': [0., 0., 0.],
+                 'o': [1., 0.5, 0.],
+                 'p': [1., 0.5, 0.5]}
+    base_color = np.array(colordict[base_color], dtype=float)
+
+  start_color = np.fmax(0, base_color - base_color.max() + os)
+  end_color = np.fmin(1., base_color - base_color.min() + 1 - os)
+  # make base vector
+  icenter = np.int((nof_points + 0.5)//2)
+
+  cvec = np.zeros((nof_points, 3), dtype=float)
+  for iax in range(3):
+    cvec[:icenter, iax] = np.linspace(start_color[iax], base_color[iax], icenter, endpoint=False)
+    cvec[icenter:, iax] = np.linspace(base_color[iax], end_color[iax], nof_points - icenter)
+
+  return cvec
+
+
+
+def strip_all_spaces(strarrlike_in):
+  """
+  strip of all spaces from the strings in a list
+  """
+  strarrlike_out = [string.strip() for string in strarrlike_in]
+
+  if isinstance(strarrlike_in, np.ndarray):
+    strarrlike_out = np.array(strarrlike_out, dtype=strarrlike_in.dtype)
+  elif isinstance(strarrlike_in, tuple):
+    strarrlike_out = tuple(strarrlike_out)
+
+  return strarrlike_out
 
 
 def goto(subject=None, must_make_choice=True):
@@ -1857,3 +1905,29 @@ def convert_to_list_of_tuples(inpt):
     inpt = [(inpt,),]
 
   return inpt.copy()
+
+
+def ind2rgba(arr, cmap, alphas=None):
+  '''
+  convert indexed image to rgb[a]
+  '''
+  arr_norm = (arr - np.nanmin(arr))/(np.nanmax(arr) - np.nanmin(arr))
+
+  # do interpolation
+  fi = interp1d(np.linspace(0., 1., cmap.shape[0]), cmap, axis=0)
+  arr_rgb = fi(arr_norm)
+
+  if alphas is not None:
+    return np.concatenate((arr_rgb, np.expand_dims(alphas, -1)), axis=-1)
+  else:
+    return arr_rgb
+
+
+def short_string(str, istart=2, maxlength=8):
+  """
+  shorten a long string to keep only the start and end parts connected with dots
+  """
+  if len(str) <= maxlength:
+    return str
+
+  return str[:istart] + "..." + str[-(maxlength-istart):]
