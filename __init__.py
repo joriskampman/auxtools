@@ -8,7 +8,6 @@ import tkinter as tk
 from tkinter import Tk, filedialog
 import matplotlib.pyplot as plt
 import os
-from scipy.io import loadmat
 from scipy.interpolate import interp1d
 import numexpr as ne
 
@@ -16,10 +15,10 @@ from scipy.fftpack import fftshift
 import os # noqa
 import sys # noqa
 import warnings as wn # noqa
-from functools import reduce
 import warnings
 import datetime as dt
-import pdb
+import pdb  # noqa
+from warnings import warn
 
 # import all subfunctions
 from .coordinate_transforms import *  # noqa
@@ -34,6 +33,35 @@ amax_size_inches = (9.82*np.sqrt(2), 9.82)
 d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
+
+
+def monospace(array, delta=None):
+  """
+  straighten an array which has rounding errors
+  """
+  if delta is None:
+    delta = np.mean(np.diff(array))
+
+  array = np.r_[:array.size]*delta
+
+  return array
+
+
+def get_closest_index(value_wanted, values, suppress_warnings=False):
+  """
+  get the closest index
+  """
+  ifnd_arr = np.argwhere(np.isclose(values, value_wanted)).ravel()
+  if ifnd_arr.size > 0:
+    ifnd = ifnd_arr.item()
+  else:
+    # get the closest
+    ifnd = np.argmin(np.abs(values - value_wanted)).ravel()[0]
+    if not suppress_warnings:
+      warn("There is no `exact` match for value = {}. Taking the closest value = {}".
+           format(value_wanted, values[ifnd]))
+
+  return ifnd
 
 
 def substr2index(substring, strlist):
@@ -72,7 +100,7 @@ def make_array_like(input_, array_like):
   """
   output = np.copy(input_)
   # from single elements to array of 1 element
-  if isinstance(input_, (str, int, float, np.float_, np.int_)):
+  if np.ndim(input_) == 0:
     output = [input_,]
 
   # convert to the right type
