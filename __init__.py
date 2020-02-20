@@ -19,6 +19,7 @@ import warnings
 import datetime as dt
 import pdb  # noqa
 from warnings import warn
+from matplotlib.colors import to_rgb
 
 # import all subfunctions
 from .coordinate_transforms import *  # noqa
@@ -118,20 +119,7 @@ def color_vector(nof_points, base_color, os=0.25):
   """
   determine a color vector from dark to light around a center color
   """
-  if isinstance(base_color, (list, tuple)):
-    base_color = np.array(base_color, dtype=float)
-  elif isinstance(base_color, str):
-    colordict = {'r': [1., 0., 0],
-                 'g': [0., 1., 0.],
-                 'b': [0., 0., 1.],
-                 'c': [0., 1., 1.],
-                 'm': [1., 0., 1.],
-                 'y': [1., 1., 0.],
-                 'w': [1., 1., 1.],
-                 'k': [0., 0., 0.],
-                 'o': [1., 0.5, 0.],
-                 'p': [1., 0.5, 0.5]}
-    base_color = np.array(colordict[base_color], dtype=float)
+  base_color = np.array(to_rgb(base_color))
 
   start_color = np.fmax(0, base_color - base_color.max() + os)
   end_color = np.fmin(1., base_color - base_color.min() + 1 - os)
