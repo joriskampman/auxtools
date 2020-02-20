@@ -1997,3 +1997,89 @@ def short_string(str, istart=2, maxlength=8):
     return str
 
   return str[:istart] + "..." + str[-(maxlength-istart):]
+
+
+def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, nreq=None,
+                                return_strings=False, strmatch='full'):
+  """
+  search the variable names for a certain substring list. Case insensitivity may be enforced
+
+  arguments:
+  ----------
+  substrs : [None | list of tuple of str | tuple of str | str]
+            A (list of) string(s) containing the substrings being looked for
+            A tuple element implies an AND search
+            Every element in the list is an OR search
+            If the first element is an exclamation point (!), this is a NOT included
+            *None* (default) will show all variables logged
+  list2search : array-like of str
+             A list of all variable names
+  is_case_sensitive : bool, default=True
+                      Whether the search must be case sensitive
+
+  returns:
+  --------
+  fnd_varslist : (list of) list of str
+                 A list of variable names which contain the substrings. In case there is more than
+                 one, it is a list of lists of strs
+  """
+
+  if isinstance(substrs, str):
+    if strmatch == 'all':
+      substrs = (*substrs.split(),)
+    elif strmatch == 'any':
+      substrs = substrs.split()
+    elif strmatch == 'full':
+      pass
+    else:
+      raise ValueError("The setting for `strmatch` ({}) is not valid".format(strmatch))
+
+  # process fully if substrs is not NONE
+  if substrs is None:
+    list2search_fnd = list2search.copy()
+
+  else:
+    substrs = convert_to_list_of_tuples(substrs)
+
+    if not is_case_sensitive:
+      list2search_sens = list2search.copy()
+      # make substrs/list2search lower case
+      substrs = [tuple([substr.lower() for substr in subtup],) for subtup in substrs]
+      list2search = [elm.lower() for elm in list2search]
+
+    ifnd = np.array([], dtype=int)
+    for subtup in substrs:
+      ifnd_and = None
+      for substr in subtup:
+        if substr[0] == "!":
+          tf_this = [substr[1:] not in varname for varname in list2search]
+        else:
+          tf_this = [substr in varname for varname in list2search]
+        ifnd_and_this = np.argwhere(tf_this).ravel()
+        if ifnd_and is None:
+          ifnd_and = np.array(ifnd_and_this)
+        else:
+          ifnd_and = np.intersect1d(ifnd_and, ifnd_and_this)
+
+      ifnd = np.union1d(ifnd, ifnd_and)
+
+    # get the names
+    if not is_case_sensitive:
+      list2search_fnd = (np.array(list2search_sens)[ifnd]).tolist()
+    else:
+      list2search_fnd = (np.array(list2search)[ifnd]).tolist()
+
+  # check outputs
+  output = ifnd
+  if return_strings:
+    output = list2search_fnd
+
+  if nreq is not None:
+    if len(output) == nreq:
+      if nreq == 1:
+        output = output[0]
+    else:
+      raise ValueError("There must be exactly one ouput. This case found {:d} outputs".
+                       format(len(list2search_fnd)))
+
+  return output
