@@ -1858,7 +1858,7 @@ def exp_fast(data):
   return ne.evaluate('exp(data)')
 
 
-def qplot(*args, **kwargs):
+def qplot(*args, newfig=True, **kwargs):
   """
   a quicklook plot
   """
@@ -1873,7 +1873,11 @@ def qplot(*args, **kwargs):
     kwargs.update(**kwargs_plot)
 
   # plot in current figure
-  ax = plt.gca()
+  if newfig:
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+  else:
+    ax = plt.gca()
   ax.plot(*args, **kwargs)
   plt.show(block=False)
   plt.draw()
@@ -2083,3 +2087,4 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
                        format(len(list2search_fnd)))
 
   return output
+
