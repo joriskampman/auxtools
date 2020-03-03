@@ -36,6 +36,13 @@ r2d = 180/np.pi
 T0 = 290
 
 
+def split_complex(cplx, sfx=1, sfy=1):
+  """
+  split a complex point in real and imaginary parts with a scale factor
+  """
+  return sfx*np.real(cplx), sfy*np.imag(cplx)
+
+
 def monospace(array, delta=None):
   """
   straighten an array which has rounding errors
@@ -2083,8 +2090,29 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
       if nreq == 1:
         output = output[0]
     else:
-      raise ValueError("There must be exactly one ouput. This case found {:d} outputs".
-                       format(len(list2search_fnd)))
+      raise ValueError("There must be exactly {:d} ouputs. This case found {:d} outputs".
+                       format(nreq, len(list2search_fnd)))
 
   return output
 
+
+def data_scaling(data, minval=0., maxval=1.):
+  """
+  Scale the data accurding to some minimum and maximum value. Default is a bracket between 0 and 1
+  """
+  if not isinstance(data, np.ndarray):
+    warn("The data type will be transformed to an array")
+    data = arrayify(data)
+
+  dmin = data.min()
+  dmax = data.max()
+
+  drange = dmax - dmin
+  wrange = maxval - minval
+
+  # scale to unit interval
+  dunit = (data - dmin)/drange
+
+  dwanted = dunit*wrange + minval
+
+  return dwanted
