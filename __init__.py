@@ -2115,13 +2115,25 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
       if nreq == 1:
         output = output[0]
     else:
-      raise ValueError("There must be exactly {:d} ouputs. This case found {:d} outputs".
-                       format(nreq, len(list2search_fnd)))
+      if raise_except:
+        raise ValueError("There must be exactly {:d} ouputs. This case found {:d} outputs".
+                         format(nreq, len(list2search_fnd)))
+      else:
+        if if_multiple_take_shortest:
+          # find shortest
+          isort = np.argsort([len(elm) for elm in list2search_fnd])
+          output = output[isort[:nreq]]
+          warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
+               format(ifnd.size, nreq), category=ShortestElementTakenWarning)
+        else:
+          output = []
+          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware",
+               category=EmptyListReturnedWarning)
 
   return output
 
 
-def data_scaling(data, minval=0., maxval=1.):
+def data_scaling(data, minval=0., maxval=1., func='linear'):
   """
   Scale the data accurding to some minimum and maximum value. Default is a bracket between 0 and 1
   """
