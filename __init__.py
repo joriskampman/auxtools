@@ -353,7 +353,7 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
 
   # if check_exists:
   #   if os.path.exists(filename):
-  #     answer = jk.dinput('The file already exists. Overwrite? [y/n]', 'y')
+  #     answer = dinput('The file already exists. Overwrite? [y/n]', 'y')
   #     if answer[0].lower() == 'y':
   #       # remove
   #       os.remove(filename)
@@ -1522,7 +1522,7 @@ def bracket(x):
 
   Author: Joris Kampman, Thales NL, 2017
   '''
-
+  x = arrayify(x)
   return x.min(), x.max()
 
 
@@ -1985,23 +1985,26 @@ def str2timedelta(numstr):
   return dt_delta
 
 
-def convert_to_list_of_tuples(inpt):
+def convert_to_list_of_tuples(input_):
   """
   make an input to a list of tuples
   """
   # make it al into a list of tuple(s)
-  if isinstance(inpt, list):
-    for item in range(len(inpt)):
-      if isinstance(inpt[item], str):
-        inpt[item] = (inpt[item],)
+  if input_ is None:
+    return None
 
-  if isinstance(inpt, tuple):
-    inpt = [inpt]
+  if isinstance(input_, list):
+    for item in range(len(input_)):
+      if isinstance(input_[item], str):
+        input_[item] = (input_[item],)
 
-  if isinstance(inpt, str):
-    inpt = [(inpt,),]
+  if isinstance(input_, tuple):
+    input_ = [input_]
 
-  return inpt.copy()
+  if isinstance(input_, str):
+    input_ = [(input_,),]
+
+  return input_.copy()
 
 
 def ind2rgba(arr, cmap, alphas=None):
