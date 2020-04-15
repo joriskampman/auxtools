@@ -37,6 +37,25 @@ r2d = 180/np.pi
 T0 = 290
 
 
+def nanplot(*_args, **kwargs):
+  """
+  initiate a nan plot for updating/animations
+  """
+  if 'ax' in kwargs:
+    ax = kwargs.pop('ax')
+  else:
+    ax = plt.gca()
+
+  if isinstance(_args[0], int):
+    xs = np.r_[:_args[0]]
+  else:
+    xs = _args[0]
+
+  ln, = ax.plot(xs, np.nan*np.ones_like(xs, dtype=float), *_args[1:], **kwargs)
+
+  return ln
+
+
 def split_complex(cplx, sfx=1, sfy=1):
   """
   split a complex point in real and imaginary parts with a scale factor
