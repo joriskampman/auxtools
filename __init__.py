@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import os
 from scipy.interpolate import interp1d
 import numexpr as ne
+import re
 
 from scipy.fftpack import fftshift
 import os # noqa
@@ -34,6 +35,25 @@ amax_size_inches = (9.82*np.sqrt(2), 9.82)
 d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
+
+
+def nanplot(*_args, **kwargs):
+  """
+  initiate a nan plot for updating/animations
+  """
+  if 'ax' in kwargs:
+    ax = kwargs.pop('ax')
+  else:
+    ax = plt.gca()
+
+  if isinstance(_args[0], int):
+    xs = np.r_[:_args[0]]
+  else:
+    xs = _args[0]
+
+  ln, = ax.plot(xs, np.nan*np.ones_like(xs, dtype=float), *_args[1:], **kwargs)
+
+  return ln
 
 
 def split_complex(cplx, sfx=1, sfy=1):
@@ -333,7 +353,7 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
 
   # if check_exists:
   #   if os.path.exists(filename):
-  #     answer = jk.dinput('The file already exists. Overwrite? [y/n]', 'y')
+  #     answer = dinput('The file already exists. Overwrite? [y/n]', 'y')
   #     if answer[0].lower() == 'y':
   #       # remove
   #       os.remove(filename)
@@ -1502,7 +1522,7 @@ def bracket(x):
 
   Author: Joris Kampman, Thales NL, 2017
   '''
-
+  x = arrayify(x)
   return x.min(), x.max()
 
 
@@ -1965,23 +1985,26 @@ def str2timedelta(numstr):
   return dt_delta
 
 
-def convert_to_list_of_tuples(inpt):
+def convert_to_list_of_tuples(input_):
   """
   make an input to a list of tuples
   """
   # make it al into a list of tuple(s)
-  if isinstance(inpt, list):
-    for item in range(len(inpt)):
-      if isinstance(inpt[item], str):
-        inpt[item] = (inpt[item],)
+  if input_ is None:
+    return None
 
-  if isinstance(inpt, tuple):
-    inpt = [inpt]
+  if isinstance(input_, list):
+    for item in range(len(input_)):
+      if isinstance(input_[item], str):
+        input_[item] = (input_[item],)
 
-  if isinstance(inpt, str):
-    inpt = [(inpt,),]
+  if isinstance(input_, tuple):
+    input_ = [input_]
 
-  return inpt.copy()
+  if isinstance(input_, str):
+    input_ = [(input_,),]
+
+  return input_.copy()
 
 
 def ind2rgba(arr, cmap, alphas=None):
@@ -2011,7 +2034,8 @@ def short_string(str, istart=2, maxlength=8):
 
 
 def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, nreq=None,
-                                return_strings=False, strmatch='full'):
+                                return_strings=False, strmatch='full', raise_except=True,
+                                if_multiple_take_shortest=True):
   """
   search the variable names for a certain substring list. Case insensitivity may be enforced
 
@@ -2027,6 +2051,16 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
              A list of all variable names
   is_case_sensitive : bool, default=True
                       Whether the search must be case sensitive
+  nreq : [None | int], default=None
+         The number of elements which must be found. Raises an error if the number requested to be
+         found is not exact.
+  return_strings : bool, default=False
+                   returns the strings themselves instead of the indices that where found
+  strmatch : ['all', 'any', 'full'], default='full'
+             The type of matching to be done. The options are:
+             - 'all': every single part of the string must be present in the found string
+             - 'any': at least one part of the string must be present in the found string
+             - 'full': the full string must match exactly
 
   returns:
   --------
@@ -2034,6 +2068,18 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
                  A list of variable names which contain the substrings. In case there is more than
                  one, it is a list of lists of strs
   """
+  class RequestedOutputCountError(Exception):
+    pass
+
+  class ShortestElementTakenWarning(UserWarning):
+    pass
+
+  class EmptyListReturnedWarning(UserWarning):
+    pass
+
+
+  if substrs is None:
+    return []
 
   if isinstance(substrs, str):
     if strmatch == 'all':
@@ -2082,6 +2128,7 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
 
   # check outputs
   output = ifnd
+
   if return_strings:
     output = list2search_fnd
 
@@ -2090,8 +2137,20 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
       if nreq == 1:
         output = output[0]
     else:
-      raise ValueError("There must be exactly {:d} ouputs. This case found {:d} outputs".
-                       format(nreq, len(list2search_fnd)))
+      if raise_except:
+        raise ValueError("There must be exactly {:d} ouputs. This case found {:d} outputs".
+                         format(nreq, len(list2search_fnd)))
+      else:
+        if if_multiple_take_shortest:
+          # find shortest
+          isort = np.argsort([len(elm) for elm in list2search_fnd])
+          output = output[isort[:nreq]]
+          warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
+               format(ifnd.size, nreq), category=ShortestElementTakenWarning)
+        else:
+          output = []
+          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware",
+               category=EmptyListReturnedWarning)
 
   return output
 
@@ -2126,3 +2185,49 @@ def data_scaling(data, minval=0., maxval=1., func='linear'):
   dwanted = dunit*wrange + minval
 
   return dwanted
+
+
+def modify_strings(strings, globs=None, specs=None):
+  """
+  modify the strings in a list or array by two means: global or specific replacements.
+
+  global_replacements will search for the string and replace it with another (sub) string
+  specific_replacements will search for a substring and replace it. The latter allows only a single
+  substring to be found
+
+  global replacements are performed before specific replacements, so be careful!
+
+  Arguments:
+  ----------
+  strings : [ array-like of strings | str]
+            the string(s) to be modified
+  globs : [ None | tuple | list of tuples ], default=None
+          The global replacements. This is a simple (but case-INsensitive) substring replace
+  specs : [ None | tuple | list of tuples], default=None
+          The specific replacements. This uses *find_elm_containing_substrs* to search for a single
+          specific string to replace. Exactly 1 can be found, otherwise nothing is done
+  """
+
+  modstrings = listify(strings)
+  globs = convert_to_list_of_tuples(globs)
+  specs = convert_to_list_of_tuples(specs)
+
+  if globs is not None:
+    for glrep in globs:
+      replace = glrep[0]
+      by = glrep[1] if glrep[1] is not None else ''
+      modstrings = [re.sub(replace, by, str_, flags=re.I).strip() for str_ in modstrings]
+
+  if specs is not None:
+    for irepl, reptup in enumerate(specs):
+      if len(reptup) == 2:
+        reptup = (*reptup, 'all')
+
+      ifnd = find_elm_containing_substrs(reptup[0], modstrings, nreq=1, strmatch=reptup[2],
+                                         raise_except=False)
+      if ifnd.size == 1:
+        modstrings[ifnd] = reptup[1]
+
+  return modstrings
+
+
