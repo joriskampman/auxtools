@@ -2096,7 +2096,7 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
   return output
 
 
-def data_scaling(data, minval=0., maxval=1.):
+def data_scaling(data, minval=0., maxval=1., func='linear'):
   """
   Scale the data accurding to some minimum and maximum value. Default is a bracket between 0 and 1
   """
@@ -2104,15 +2104,25 @@ def data_scaling(data, minval=0., maxval=1.):
     warn("The data type will be transformed to an array")
     data = arrayify(data)
 
+  # scale to unit interval
+  if func == 'linear':
+    pass
+  elif func == 'pow10':
+    data = np.log10(data)
+  elif func == 'exp':
+    data = np.log(data)
+  elif func == 'pow2':
+    data = np.log2(data)
+  else:
+    raise ValueError("The `func` keyword value ({}) is not valid".format(func))
+
   dmin = data.min()
   dmax = data.max()
 
   drange = dmax - dmin
   wrange = maxval - minval
 
-  # scale to unit interval
   dunit = (data - dmin)/drange
-
   dwanted = dunit*wrange + minval
 
   return dwanted
