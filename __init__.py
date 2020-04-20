@@ -2077,7 +2077,6 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
   class EmptyListReturnedWarning(UserWarning):
     pass
 
-
   if substrs is None:
     return []
 
@@ -2229,5 +2228,4 @@ def modify_strings(strings, globs=None, specs=None):
         modstrings[ifnd] = reptup[1]
 
   return modstrings
-
 
