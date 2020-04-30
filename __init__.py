@@ -1885,7 +1885,7 @@ def exp_fast(data):
   return ne.evaluate('exp(data)')
 
 
-def qplot(*args, newfig=True, **kwargs):
+def qplot(*args, ax=None, **kwargs):
   """
   a quicklook plot
   """
@@ -1900,9 +1900,8 @@ def qplot(*args, newfig=True, **kwargs):
     kwargs.update(**kwargs_plot)
 
   # plot in current figure
-  if newfig:
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
+  if ax is None:
+    fig, ax = plt.subplots(1, 1)
   else:
     ax = plt.gca()
   ax.plot(*args, **kwargs)
@@ -2023,19 +2022,50 @@ def ind2rgba(arr, cmap, alphas=None):
     return arr_rgb
 
 
-def short_string(str, istart=2, maxlength=8):
+def short_string(str_, maxlength, what2keep='edges', placeholder="..."):
   """
   shorten a long string to keep only the start and end parts connected with dots
   """
-  if len(str) <= maxlength:
-    return str
+  strlen = len(str_)
+  pllen = len(placeholder)
+  if strlen <= maxlength:
+    return str_
 
-  return str[:istart] + "..." + str[-(maxlength-istart):]
+  # check if it is in the middle
+  if what2keep in ('middle', 'center', 'centre'):
+    what2keep = strlen//2 - pllen
+
+  if isinstance(what2keep, (np.int_, int, float, np.float_)):
+    what2keep = np.int(what2keep + 0.5)
+    nof_chars = maxlength - 2*pllen
+    istart_keep = np.int(what2keep + 0.5)
+    iend_keep = istart_keep + nof_chars
+    # if start point is less than length of placeholder there is no point in using placeholder
+    if istart_keep < pllen:
+      delta = pllen - istart_keep
+      strout = str_[0:iend_keep+delta] + placeholder
+
+    elif iend_keep > strlen:
+      delta = iend_keep - strlen
+      strout = placeholder + str_[istart_keep-delta:]
+    else:
+      strout = placeholder + str_[istart_keep:iend_keep] + placeholder
+  elif what2keep == 'edges':
+    nhalf = (strlen - pllen)//2
+    strout = str_[:nhalf] + placeholder + str_[-nhalf:]
+  elif what2keep in ('start', 'begin'):
+    strout = str_[:(maxlength - pllen)] + placeholder
+  elif what2keep == 'end':
+    strout = placeholder + str_[-(strlen - pllen):]
+  else:
+    raise ValueError("The value for `what2keep` ({}) is not valid".format(what2keep))
+
+  return strout
 
 
 def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, nreq=None,
                                 return_strings=False, strmatch='full', raise_except=True,
-                                if_multiple_take_shortest=True):
+                                if_multiple_take_shortest=False):
   """
   search the variable names for a certain substring list. Case insensitivity may be enforced
 
@@ -2147,9 +2177,9 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
           warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
                format(ifnd.size, nreq), category=ShortestElementTakenWarning)
         else:
-          output = []
-          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware",
-               category=EmptyListReturnedWarning)
+          output = np.array([])
+          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware".
+               format(ifnd.size, nreq), category=EmptyListReturnedWarning)
 
   return output
 
