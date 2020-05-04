@@ -1885,7 +1885,7 @@ def exp_fast(data):
   return ne.evaluate('exp(data)')
 
 
-def qplot(*args, newfig=True, **kwargs):
+def qplot(*args, ax=None, **kwargs):
   """
   a quicklook plot
   """
@@ -1900,9 +1900,8 @@ def qplot(*args, newfig=True, **kwargs):
     kwargs.update(**kwargs_plot)
 
   # plot in current figure
-  if newfig:
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
+  if ax is None:
+    fig, ax = plt.subplots(1, 1)
   else:
     ax = plt.gca()
   ax.plot(*args, **kwargs)
@@ -2023,19 +2022,50 @@ def ind2rgba(arr, cmap, alphas=None):
     return arr_rgb
 
 
-def short_string(str, istart=2, maxlength=8):
+def short_string(str_, maxlength, what2keep='edges', placeholder="..."):
   """
   shorten a long string to keep only the start and end parts connected with dots
   """
-  if len(str) <= maxlength:
-    return str
+  strlen = len(str_)
+  pllen = len(placeholder)
+  if strlen <= maxlength:
+    return str_
 
-  return str[:istart] + "..." + str[-(maxlength-istart):]
+  # check if it is in the middle
+  if what2keep in ('middle', 'center', 'centre'):
+    what2keep = strlen//2 - pllen
+
+  if isinstance(what2keep, (np.int_, int, float, np.float_)):
+    what2keep = np.int(what2keep + 0.5)
+    nof_chars = maxlength - 2*pllen
+    istart_keep = np.int(what2keep + 0.5)
+    iend_keep = istart_keep + nof_chars
+    # if start point is less than length of placeholder there is no point in using placeholder
+    if istart_keep < pllen:
+      delta = pllen - istart_keep
+      strout = str_[0:iend_keep+delta] + placeholder
+
+    elif iend_keep > strlen:
+      delta = iend_keep - strlen
+      strout = placeholder + str_[istart_keep-delta:]
+    else:
+      strout = placeholder + str_[istart_keep:iend_keep] + placeholder
+  elif what2keep == 'edges':
+    nhalf = (strlen - pllen)//2
+    strout = str_[:nhalf] + placeholder + str_[-nhalf:]
+  elif what2keep in ('start', 'begin'):
+    strout = str_[:(maxlength - pllen)] + placeholder
+  elif what2keep == 'end':
+    strout = placeholder + str_[-(strlen - pllen):]
+  else:
+    raise ValueError("The value for `what2keep` ({}) is not valid".format(what2keep))
+
+  return strout
 
 
 def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, nreq=None,
                                 return_strings=False, strmatch='full', raise_except=True,
-                                if_multiple_take_shortest=True):
+                                if_multiple_take_shortest=False):
   """
   search the variable names for a certain substring list. Case insensitivity may be enforced
 
@@ -2147,9 +2177,9 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
           warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
                format(ifnd.size, nreq), category=ShortestElementTakenWarning)
         else:
-          output = []
-          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware",
-               category=EmptyListReturnedWarning)
+          output = np.array([])
+          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware".
+               format(ifnd.size, nreq), category=EmptyListReturnedWarning)
 
   return output
 
@@ -2228,4 +2258,68 @@ def modify_strings(strings, globs=None, specs=None):
         modstrings[ifnd] = reptup[1]
 
   return modstrings
+
+
+def improvedshow(matdata, clabels=None, rlabels=None, show_values=True, fmt="{:0.1g}",
+                 invalid=None, ax=None, title=None, fignum=None, **kwargs):
+  """
+  create a matrix plot via matshow with some extras like show the values
+  """
+
+  if np.isscalar(invalid):
+    invalid = [invalid - np.spacing(invalid), invalid + np.spacing(invalid)]
+  nr, nc = matdata.shape
+  if ax is None:
+    fig, ax = plt.subplots(1, 1, num=figname(fignum))
+  else:
+    fig = ax.figure
+
+  ax.imshow(matdata, interpolation='nearest', **kwargs)
+
+  ax.set_xticks(np.r_[:nc])
+  if clabels is None:
+    ax.set_xticklabels(ax.get_xticks(), fontsize=7)
+  else:
+    ax.set_xticklabels(clabels, fontsize=7, rotation=45, va='top', ha='right')
+
+  ax.set_yticks(np.r_[:nr])
+  if rlabels is None:
+    ax.set_yticklabels(ax.get_yticks(), fontsize=7)
+  else:
+    ax.set_yticklabels(rlabels, fontsize=7)
+  ax.tick_params(axis='both', which='major', length=0)
+
+  # make minor ticks for dividing lines
+  ax.set_xticks(np.r_[-0.5:nc+0.5:1], minor=True)
+  ax.set_yticks(np.r_[-0.5:nr+0.5:1], minor=True)
+
+  ax.grid(which='minor', linewidth=1)
+
+  if 'aspect' not in kwargs.keys():
+    kwargs['aspect'] = 'auto'
+  # show the values in the matrix
+  if show_values:
+    for irow in range(nr):
+      for icol in range(nc):
+        cellval = matdata[irow, icol]
+        # check if is valid
+        if (invalid is None) or not (invalid[0] < cellval < invalid[1]):
+          # check color
+          # if cellval.sum() < 0.5:
+          #   color = [0.75, 0.75, 0.75]
+          # else:
+          #   color = [0., 0., 0]
+          ax.text(icol, irow, fmt.format(matdata[irow, icol]), fontsize=6, ha='center',
+                  color='k', va='center', clip_on=True, bbox={'boxstyle':'square', 'pad':0.0,
+                                                              'facecolor': 'none', 'lw': 0.,
+                                                              'clip_on': True})
+
+  if title is not None:
+    ax.set_title(title, fontsize=11, fontweight='bold')
+
+  plt.show(block=False)
+  fig.tight_layout()
+  plt.draw()
+
+  return fig, ax
 
