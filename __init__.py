@@ -2259,3 +2259,67 @@ def modify_strings(strings, globs=None, specs=None):
 
   return modstrings
 
+
+def improvedshow(matdata, clabels=None, rlabels=None, show_values=True, fmt="{:0.1g}",
+                 invalid=None, ax=None, title=None, fignum=None, **kwargs):
+  """
+  create a matrix plot via matshow with some extras like show the values
+  """
+
+  if np.isscalar(invalid):
+    invalid = [invalid - np.spacing(invalid), invalid + np.spacing(invalid)]
+  nr, nc = matdata.shape
+  if ax is None:
+    fig, ax = plt.subplots(1, 1, num=figname(fignum))
+  else:
+    fig = ax.figure
+
+  ax.imshow(matdata, interpolation='nearest', **kwargs)
+
+  ax.set_xticks(np.r_[:nc])
+  if clabels is None:
+    ax.set_xticklabels(ax.get_xticks(), fontsize=7)
+  else:
+    ax.set_xticklabels(clabels, fontsize=7, rotation=45, va='top', ha='right')
+
+  ax.set_yticks(np.r_[:nr])
+  if rlabels is None:
+    ax.set_yticklabels(ax.get_yticks(), fontsize=7)
+  else:
+    ax.set_yticklabels(rlabels, fontsize=7)
+  ax.tick_params(axis='both', which='major', length=0)
+
+  # make minor ticks for dividing lines
+  ax.set_xticks(np.r_[-0.5:nc+0.5:1], minor=True)
+  ax.set_yticks(np.r_[-0.5:nr+0.5:1], minor=True)
+
+  ax.grid(which='minor', linewidth=1)
+
+  if 'aspect' not in kwargs.keys():
+    kwargs['aspect'] = 'auto'
+  # show the values in the matrix
+  if show_values:
+    for irow in range(nr):
+      for icol in range(nc):
+        cellval = matdata[irow, icol]
+        # check if is valid
+        if (invalid is None) or not (invalid[0] < cellval < invalid[1]):
+          # check color
+          # if cellval.sum() < 0.5:
+          #   color = [0.75, 0.75, 0.75]
+          # else:
+          #   color = [0., 0., 0]
+          ax.text(icol, irow, fmt.format(matdata[irow, icol]), fontsize=6, ha='center',
+                  color='k', va='center', clip_on=True, bbox={'boxstyle':'square', 'pad':0.0,
+                                                              'facecolor': 'none', 'lw': 0.,
+                                                              'clip_on': True})
+
+  if title is not None:
+    ax.set_title(title, fontsize=11, fontweight='bold')
+
+  plt.show(block=False)
+  fig.tight_layout()
+  plt.draw()
+
+  return fig, ax
+
