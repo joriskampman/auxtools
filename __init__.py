@@ -1785,6 +1785,10 @@ def resize_figure(fig=None, size=None, orientation='landscape', tight_layout=Tru
     else:
       raise ValueError('keyword argument orientation="{}" is not valid.'
                        ' Only "landscape" and "portrait" are.'.format(orientation))
+  elif size == "maximize":
+    mng = plt.get_current_fig_manager()
+    mng.window.showMaximized()
+
   else:
     fig.set_size_inches(*size, forward=True)
 
