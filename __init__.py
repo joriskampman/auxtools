@@ -22,6 +22,8 @@ import pdb  # noqa
 from warnings import warn
 from matplotlib.colors import to_rgb
 
+import glob
+
 # import all subfunctions
 from .coordinate_transforms import *  # noqa
 from .cmaps import * # noqa
@@ -2354,7 +2356,6 @@ def get_file(filepart=None, dirname=None, ext=None):
       ext = "." + ext
 
     # load the files
-    print(ext)
     files_found = glob.glob(os.path.join(dirname, filepart + "*" + ext))
 
   # ------------- files_found determines what's next ----------------------------
