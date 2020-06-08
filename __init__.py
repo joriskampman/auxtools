@@ -22,6 +22,8 @@ import pdb  # noqa
 from warnings import warn
 from matplotlib.colors import to_rgb
 
+import glob
+
 # import all subfunctions
 from .coordinate_transforms import *  # noqa
 from .cmaps import * # noqa
@@ -2327,3 +2329,50 @@ def improvedshow(matdata, clabels=None, rlabels=None, show_values=True, fmt="{:0
 
   return fig, ax
 
+
+def get_file(filepart=None, dirname=None, ext=None):
+  """
+  get the file if only a part is given, otherwise it is transparent
+  """
+
+  # if no filepart is given go immediately to aux.select_file()
+  if filepart is None:
+    files_found = []
+  else:
+    # handle missing dirname
+    if dirname is None:
+      dirname = ''
+
+    # handle missing ext or just without a leading dot
+    if ext is None:
+      ext = ''
+
+    # work on the given filepart -> split off extension if present
+    filepart, given_ext = os.path.splitext(filepart)
+    if ext is None:
+      ext = given_ext
+    # check if it has a leading dot .
+    elif not ext.startswith('.'):
+      ext = "." + ext
+
+    # load the files
+    files_found = glob.glob(os.path.join(dirname, filepart + "*" + ext))
+
+  # ------------- files_found determines what's next ----------------------------
+  # check if anything was found
+  if len(files_found) == 1:
+    filename = files_found[0]
+  elif len(files_found) > 1:
+    print("Multiple files found. Select the wanted one")
+    for ifile, file in enumerate(files_found):
+      print("[{:d}] {:s}".format(ifile, file))
+    index_chosen = np.int(input("Select the file to load: "))
+    filename = files_found[index_chosen]
+  else:
+    filename = select_file(initialdir=modeldir, filetypes=[("Matlab files", "*.mat")],
+                           title="select a file")
+
+  if not os.path.exists(filename):
+    raise FileNotFoundError("The file ** does not exist".format(filename))
+
+  return filename
