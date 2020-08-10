@@ -13,6 +13,7 @@ import numexpr as ne
 import re
 
 from scipy.fftpack import fftshift
+from scipy.signal import find_peaks
 import os # noqa
 import sys # noqa
 import warnings as wn # noqa
@@ -420,26 +421,23 @@ def calc_frequencies(nof_taps, fs, center_zero=True):
   freqs : ndarray of floats
           An array containing the frequencies of the spectrum
   '''
-  if center_zero:
-    taps = np.arange(-nof_taps//2, nof_taps//2)
-  else:
-    taps = np.arange(nof_taps)
 
-  freqs = taps*(fs/nof_taps)
+  # subtract to get the number of intervals/steps
+  nof_steps = nof_taps
+  if center_zero:
+    taps = np.arange(-nof_steps//2, nof_steps//2)
+  else:
+    taps = np.arange(nof_steps)
+
+  freqs = taps*(fs/nof_steps)
 
   return freqs
 
 
-def plot_spectrum(signal, plotspec='b.-', fs=1., nof_taps=None, mode='default', center_zero=True,
-                  ax=None, **plot_kwargs):
-  '''
-  Plot the spectrum of an input signal (or a filter spec)
-
-  Positional arguments:
-  ---------------------
-  ... to be filled in an continued ....continued
-  '''
-
+def spectrum(signal, fs=1., nof_taps=None, mode='default', center_zero=True):
+  """
+  get the spectrum of a signal
+  """
   signal = signal.reshape(-1)
   if nof_taps is None:
     nof_taps = signal.size
@@ -455,14 +453,46 @@ def plot_spectrum(signal, plotspec='b.-', fs=1., nof_taps=None, mode='default', 
   elif mode == 'per_sample':
     spect /= nof_taps
   elif mode == 'normalize':
-    spect /= np.abs(Y).max()
+    spect /= np.abs(spect).max()
+
+  return freqs, spect
+
+
+def plot_spectrum(signal, plotspec='b.-', fs=1., nof_taps=None, mode='default', center_zero=True,
+                  ax=None, npeaks=0, full=True, **plot_kwargs):
+  '''
+  Plot the spectrum of an input signal (or a filter spec)
+
+  Positional arguments:
+  ---------------------
+  ... to be filled in an continued ....continued
+  '''
+  freqs, spect = spectrum(signal, fs=fs, nof_taps=nof_taps, mode=mode, center_zero=center_zero)
+  nof_samples = freqs.size
+
+  if not full:
+    freqs = freqs[:nof_samples//2]
+    spect = spect[:nof_samples//2]
 
   # plot the stuff
   if ax is None:
-    fig = plt.figure(figname('{:d}-point spectrum'.format(nof_taps)))
+    fig = plt.figure(figname('{:d}-point spectrum'.format(freqs.size)))
     ax = fig.add_subplot(111)
 
-  ax.plot(freqs, logmod(spect), plotspec, **plot_kwargs)
+  ax.plot(freqs, db(spect), plotspec, **plot_kwargs)
+  if npeaks > 0:
+    ipks = find_peaks(np.abs(spect))[0]
+    # remove negative frequencies
+    ipks = np.delete(ipks, np.nonzero(freqs[ipks] < 0.))
+    nof_peaks_found = ipks.size
+    for iipk in range(np.fmin(nof_peaks_found, npeaks)):
+      ipk = ipks[iipk]
+      xpk = freqs[ipk]
+      ypk = logmod(spect[ipk])
+      ax.axvline(xpk, color='k', linestyle='--')
+      ax.axhline(ypk, color='k', linestyle='--')
+      ax.plot(xpk, ypk, 'kx', markersize=5, mew=5)
+
   plt.show(block=False)
 
   return (ax, spect)
@@ -1909,7 +1939,8 @@ def qplot(*args, ax=None, **kwargs):
   if ax is None:
     fig, ax = plt.subplots(1, 1)
   else:
-    ax = plt.gca()
+    if isinstance(ax, str) and ax.endswith("hold"):
+      ax = plt.gca()
   ax.plot(*args, **kwargs)
   plt.show(block=False)
   plt.draw()
@@ -2335,17 +2366,18 @@ def get_file(filepart=None, dirname=None, ext=None):
   get the file if only a part is given, otherwise it is transparent
   """
 
+  # handle missing dirname
+  if dirname is None:
+    dirname = ''
+
+  # handle missing ext or just without a leading dot
+  if ext is None:
+    ext = ''
+
   # if no filepart is given go immediately to aux.select_file()
   if filepart is None:
     files_found = []
   else:
-    # handle missing dirname
-    if dirname is None:
-      dirname = ''
-
-    # handle missing ext or just without a leading dot
-    if ext is None:
-      ext = ''
 
     # work on the given filepart -> split off extension if present
     filepart, given_ext = os.path.splitext(filepart)
@@ -2369,10 +2401,16 @@ def get_file(filepart=None, dirname=None, ext=None):
     index_chosen = np.int(input("Select the file to load: "))
     filename = files_found[index_chosen]
   else:
-    filename = select_file(initialdir=modeldir, filetypes=[("Matlab files", "*.mat")],
-                           title="select a file")
+    filetypes = [("All files", "*.*")]
+    defaultextension = None
+    if ext.startswith('.'):
+      filetypes = [("{0:s} files".format(ext), ext)] + filetypes
+      defaultextension = ext
+
+    filename = select_file(initialdir=dirname, filetypes=filetypes, title="select a file",
+                           defaultextension=defaultextension)
 
   if not os.path.exists(filename):
-    raise FileNotFoundError("The file ** does not exist".format(filename))
+    raise FileNotFoundError("The file *{:s}* does not exist".format(filename))
 
   return filename
