@@ -434,7 +434,8 @@ def calc_frequencies(nof_taps, fs, center_zero=True):
   return freqs
 
 
-def spectrum(signal, fs=1., nof_taps=None, mode='default', center_zero=True):
+def spectrum(signal, fs=1., nof_taps=None, scaling='default', center_zero=True, full=True,
+             dB=True, Plot=True, **plot_kwargs):
   """
   get the spectrum of a signal
   """
@@ -448,54 +449,174 @@ def spectrum(signal, fs=1., nof_taps=None, mode='default', center_zero=True):
   if center_zero:
     spect = fftshift(spect)
 
-  if mode == 'default':
-    pass
-  elif mode == 'per_sample':
-    spect /= nof_taps
-  elif mode == 'normalize':
-    spect /= np.abs(spect).max()
+  if scaling == 'default':
+    sf = 1.
+  elif scaling == 'per_sample':
+    sf = nof_taps
+  elif scaling == 'normalize':
+    sf = np.abs(spect).max()
+  else:
+    raise NotImplementedError("The value for *scaling={}* is not implemented".format(scaling))
+
+  spect /= sf
+
+  if not full:
+    nof_samples = freqs.size
+    freqs = freqs[:nof_samples//2]
+    spect = spect[:nof_samples//2]
+
+  if dB:
+    spect = db(spect)
+
+  if Plot:
+    # plot the stuff
+    if 'ax' in plot_kwargs.keys():
+      ax = plot_kwargs.pop('ax')
+    else:
+      fig = plt.figure(figname('{:d}-point spectrum'.format(freqs.size)))
+      ax = fig.add_subplot(111)
+
+    print(plot_kwargs)
+    ax.plot(freqs, spect, 'b-', **plot_kwargs)
+    plt.show(block=False)
 
   return freqs, spect
 
 
-def plot_spectrum(signal, plotspec='b.-', fs=1., nof_taps=None, mode='default', center_zero=True,
-                  ax=None, npeaks=0, full=True, **plot_kwargs):
-  '''
-  Plot the spectrum of an input signal (or a filter spec)
+def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
+                              max_nof_peaks=None, min_rel_height_db=10, Plot=False, **plotkwargs):
+  """
+  find the frequencies in the spectrum of a signal
 
-  Positional arguments:
-  ---------------------
-  ... to be filled in an continued ....continued
-  '''
-  freqs, spect = spectrum(signal, fs=fs, nof_taps=nof_taps, mode=mode, center_zero=center_zero)
-  nof_samples = freqs.size
+  Arguments:
+  ----------
+  signal : ndarray of floats
+           The signal in floats
+  fs : scalar
+       The sample frequency in Hz
+  f1p : scalar or None, default=None
+        The 1P frequency. If None, f1p=1.0 will be given. Only if f1p != 1, the plots are adjusted
+  max_nof_peaks : [ None | int], default=None
+                  The maximum number of peaks to be returned
+                  None implies all peaks are returned and is effectively the same as np.inf
+  min_rel_height_db : scalar, default=10
+                      The minimimum relative height from the main spectral frequency above which
+                      additional peaks can be found. the sign is of no importance and will be
+                      corrected for
+  Plot : bool, default=False
+         Whether to plot the spectrum and the peaks superimposed
+  scaling : [ 'default' | 'normalize' | 'per_sample' ], default='default'
+                 The fourier transform scaling. These are:
+                 - 'default': simple FFT, no scaling
+                 - 'normalize': the main frequency is scaled to 0 dB
+                 - 'per_sample': the scaling is equal to (1/nof_samples)
 
-  if not full:
-    freqs = freqs[:nof_samples//2]
-    spect = spect[:nof_samples//2]
+  Returns:
+  --------
+  fpeaks : ndarray of floats
+           An array containing the peak frequencies in Hz or xP's, depending on the value for
+           *f1p*
+  peakvals : ndarray of floats
+             The peak values, they take the value of the *scaling* into account
 
-  # plot the stuff
-  if ax is None:
-    fig = plt.figure(figname('{:d}-point spectrum'.format(freqs.size)))
-    ax = fig.add_subplot(111)
 
-  ax.plot(freqs, db(spect), plotspec, **plot_kwargs)
-  if npeaks > 0:
-    ipks = find_peaks(np.abs(spect))[0]
-    # remove negative frequencies
-    ipks = np.delete(ipks, np.nonzero(freqs[ipks] < 0.))
-    nof_peaks_found = ipks.size
-    for iipk in range(np.fmin(nof_peaks_found, npeaks)):
-      ipk = ipks[iipk]
-      xpk = freqs[ipk]
-      ypk = logmod(spect[ipk])
-      ax.axvline(xpk, color='k', linestyle='--')
-      ax.axhline(ypk, color='k', linestyle='--')
-      ax.plot(xpk, ypk, 'kx', markersize=5, mew=5)
+  """
+  if f1p is None:
+    f1p = 1.0
 
-  plt.show(block=False)
+  # corner case: no signal at all
+  if np.isclose(rms(signal), 0.):
+    return np.array([])
 
-  return (ax, spect)
+  # corner case: constant signal
+  if np.isclose(np.std(signal), 0.):
+    return np.array([0.])
+
+  nof_samples = signal.size
+  fs_ = fs/f1p
+
+  signal_unbias = signal - np.mean(signal)
+  freqs, Ydb_debias = spectrum(signal_unbias, fs=fs_, center_zero=False, scaling='default',
+                               full=False, Plot=False, dB=True)
+
+  # calculate the minimum distance between samples
+  dP_per_sample = fs_/(2.*nof_samples)
+  distance_in_P = 0.4
+  distance_in_samples = 1 + np.int(0.5 + distance_in_P/dP_per_sample)
+
+  # find the peaks taking the distance of P/2 into account
+  height = Ydb_debias.max() - np.abs(min_rel_height_db)
+  ipeaks = find_peaks(Ydb_debias, height=height, distance=distance_in_samples)[0]
+
+  # remove peaks in the first interval [0, P/2]
+  idel = np.argwhere(ipeaks < distance_in_samples)
+  ipeaks = np.delete(ipeaks, idel)
+
+  isort = np.argsort(Ydb_debias[ipeaks])[-1::-1]
+  ipeaks_sorted = ipeaks[isort]
+
+  nfnd = ipeaks_sorted.size
+  if max_nof_peaks is None:
+    max_nof_peaks = nfnd
+  else:
+    max_nof_peaks = np.fmin(nfnd, max_nof_peaks)
+
+  inds = ipeaks_sorted[:max_nof_peaks]
+  fpeaks = freqs[inds]
+  peakvals = Ydb_debias[inds]
+
+  if peakvals.max() <= (db(signal.sum()) + np.abs(min_rel_height_db)):
+    fpeaks = np.insert(fpeaks, 0, 0)
+    peakvals = np.insert(peakvals, 0, db(signal.sum()))
+    # sort
+    isort = np.argsort(fpeaks)
+    fpeaks = fpeaks[isort]
+    peakvals = peakvals[isort]
+
+  if scaling.endswith('normalize'):
+    offset = np.max(peakvals)
+  elif scaling.endswith('per_sample'):
+    offset = db(signal.size)
+  elif scaling.endswith('default'):
+    offset = 0.
+  else:
+    raise NotImplementedError("The *scaling={}* is not implemented (yet)")
+
+  peakvals -= offset
+
+  if Plot:
+    if 'ax' in plot_kwargs.keys():
+      ax = plot_kwargs['ax']
+    else:
+      fig = plt.figure(figname("spectrum"))
+      ax = fig.add_subplot(111)
+      ax.set_title("The spectrum and the found peaks")
+      if np.isclose(f1p, 1.0):
+        ax.set_xlabel("Frequency [Hz]")
+      else:
+        ax.set_xlabel("relative frequecy [xP]")
+
+      if scaling.endswith("normalize"):
+        ax.set_ylabel("Power [dBc]")
+      else:
+        ax.set_ylabel("Power [dB]")
+
+    xs, ys = spectrum(signal, fs=fs_, center_zero=False, scaling=scaling, full=False,
+                      dB=True, Plot=False)
+
+    ax.plot(xs, Ydb_debias - offset, 'k--')
+    ax.plot(xs, ys, 'b-')
+    # plot_spectrum(signal, 'b-', fs=fs_, center_zero=False, scaling=scaling, full=False,
+    #               ax=ax)
+    ax.plot(fpeaks, peakvals, 'ro', mfc='none')
+    threshold = ys.max() - np.abs(min_rel_height_db)
+    ax.axhline(threshold, color='g', linestyle='--')
+    ax.text(xs[-1], threshold, "threshold @ {:0.1f} dBc".format(float(threshold)),
+            va='bottom', ha='right')
+    plt.show(block=False)
+    plt.draw()
+
+  return fpeaks, peakvals
 
 
 def print_struct_array(arr, varname='', prefix='| ', verbose=True,
@@ -2374,7 +2495,7 @@ def get_file(filepart=None, dirname=None, ext=None):
   if ext is None:
     ext = ''
 
-  # if no filepart is given go immediately to aux.select_file()
+  # if no filepart is given go immediately to select_file()
   if filepart is None:
     files_found = []
   else:
