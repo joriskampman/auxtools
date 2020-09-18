@@ -11,6 +11,7 @@ import os
 from scipy.interpolate import interp1d
 import numexpr as ne
 import re
+from copy import deepcopy
 
 from scipy.fftpack import fftshift
 from scipy.signal import find_peaks
@@ -129,7 +130,7 @@ def make_array_like(input_, array_like):
   """
   make an input into an array like
   """
-  output = np.copy(input_)
+  output = deepcopy(input_)
   # from single elements to array of 1 element
   if np.ndim(input_) == 0:
     output = [input_,]
@@ -137,12 +138,32 @@ def make_array_like(input_, array_like):
   # convert to the right type
   if array_like == 'list' or array_like == 'np.ndarray':
     output = [*output,]
-    if array_like == 'np.ndarray':
-      output = np.array(output)
+    if array_like in ['array', 'ndarray', 'np.ndarray', 'numpy.ndarray']:
+      # check if kthe elements are of the same type
+      types = check_types_in_array_like(output)
+      # all same type
+      if len(types) == 1:
+        dtype = types.pop()
+      # if different types -> dtype=object
+      else:
+        dtype = np.object
+      output = np.array(output, dtype=dtype)
   elif array_like == 'tuple':
     output = (*output,)
+  else:
+    raise ValueError("The array_like given ({}) is not valid".format(array_like))
 
   return output
+
+
+def check_types_in_array_like(array_like):
+  """
+  check the type of all elements in an array-like
+  """
+  types = set()
+  [types.add(type(elm)) for elm in array_like]
+
+  return types
 
 
 def color_vector(nof_points, base_color, os=0.25):
@@ -476,7 +497,6 @@ def spectrum(signal, fs=1., nof_taps=None, scaling='default', center_zero=True, 
       fig = plt.figure(figname('{:d}-point spectrum'.format(freqs.size)))
       ax = fig.add_subplot(111)
 
-    print(plot_kwargs)
     ax.plot(freqs, spect, 'b-', **plot_kwargs)
     plt.show(block=False)
 
@@ -1468,8 +1488,6 @@ def ndprint(arr, fs='{:0.2f}'):
 
   print([fs.format(elm) for elm in arr])
 
-  return None
-
 
 def dinput(question, default, include_default_in_question=True):
   '''
@@ -1899,7 +1917,7 @@ def tighten(fig=None, orientation='landscape', forward=True):
   return None
 
 
-def resize_figure(fig=None, size=None, orientation='landscape', tight_layout=True):
+def resize_figure(fig=None, size='amax', orientation='landscape', tight_layout=True):
   '''
   resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
   the display on the screen.None
@@ -1926,22 +1944,33 @@ def resize_figure(fig=None, size=None, orientation='landscape', tight_layout=Tru
 
   See also: jktools.tighten(), jktools.amax_size_inches
   '''
+  from tkinter import Tk
 
   if fig is None:
     fig = plt.gcf()
 
-  if size is None:
-    if orientation == 'landscape':
-      fig.set_size_inches(amax_size_inches, forward=True)
-    elif orientation == 'portrait':
-      fig.set_size_inches((amax_size_inches[1]/np.sqrt(2), amax_size_inches[1]), forward=True)
-    else:
-      raise ValueError('keyword argument orientation="{}" is not valid.'
-                       ' Only "landscape" and "portrait" are.'.format(orientation))
-  elif size == "maximize":
+  # if; maximize
+  if size.endswith("maximize"):
     mng = plt.get_current_fig_manager()
     mng.window.showMaximized()
 
+  # else: A paper dimensions (a/b=sqrt(2))
+  elif size.startswith('a'):
+    if size == 'amax':
+      root = Tk()
+      w0, h0 = paper_A_dimensions(0, units='inches', orientation=orientation)
+      hscreen = root.winfo_screenmmheight()/2.54  # go to inches
+      root.destroy()
+
+      h = hscreen
+      w = w0*(hscreen/h0)
+
+    else:
+      w, h = paper_A_dimensions(np.int(size[1:]), units='inches', orientation=orientation)
+
+    fig.set_size_inches(w, h, forward=True)
+
+  # else: witdth and height are given
   else:
     fig.set_size_inches(*size, forward=True)
 
@@ -1949,6 +1978,41 @@ def resize_figure(fig=None, size=None, orientation='landscape', tight_layout=Tru
     tighten(fig, orientation=orientation)
 
   return None
+
+
+def paper_A_dimensions(index, units="m", orientation='landscape'):
+  """
+  calculate the paper dimensions for A<x> paper sizes
+
+  The return value is a tuple (short size, long size)
+  """
+  if units == 'm':
+    sf = 1.
+  elif units == 'mm':
+    sf = 1000.
+  if units == 'cm':
+    sf = 100.
+  elif units.startswith("inch"):
+    sf = 1./0.0254
+  else:
+    raise ValueError("The units={} is not recognized".format(units))
+
+  # define the base alphaA
+  alpha_A = sf*(2)**(1./4.)
+
+  sht = alpha_A*2**(-(index+1)/2.)
+  lng = alpha_A*2**(-index/2.)
+
+  if orientation == 'landscape':
+    w = lng
+    h = sht
+  elif orientation == 'portrait':
+    w = sht
+    h = lng
+  else:
+    raise ValueError("The value for *orientation* ({}) is not valid".format(orientation))
+
+  return w, h
 
 
 def abc(a, b, c):
@@ -2209,12 +2273,13 @@ def short_string(str_, maxlength, what2keep='edges', placeholder="..."):
     else:
       strout = placeholder + str_[istart_keep:iend_keep] + placeholder
   elif what2keep == 'edges':
-    nhalf = (strlen - pllen)//2
-    strout = str_[:nhalf] + placeholder + str_[-nhalf:]
+    nstart = (maxlength - pllen)//2
+    nend = maxlength - pllen - nstart
+    strout = str_[:nstart] + placeholder + str_[-nend:]
   elif what2keep in ('start', 'begin'):
     strout = str_[:(maxlength - pllen)] + placeholder
   elif what2keep == 'end':
-    strout = placeholder + str_[-(strlen - pllen):]
+    strout = placeholder + str_[-(maxlength - pllen):]
   else:
     raise ValueError("The value for `what2keep` ({}) is not valid".format(what2keep))
 
@@ -2265,6 +2330,9 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
   class EmptyListReturnedWarning(UserWarning):
     pass
 
+  class NothingFoundError(Exception):
+    pass
+
   if substrs is None:
     return []
 
@@ -2279,6 +2347,7 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
       raise ValueError("The setting for `strmatch` ({}) is not valid".format(strmatch))
 
   # process fully if substrs is not NONE
+  list2search = arrayify(list2search)
   if substrs is None:
     list2search_fnd = list2search.copy()
 
@@ -2320,7 +2389,10 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
     output = list2search_fnd
 
   if nreq is not None:
-    if len(output) == nreq:
+    if len(output) == 0:
+      raise NothingFoundError("The substr ({}) was not found in : {}".format(substrs, list2search))
+
+    elif len(output) == nreq:
       if nreq == 1:
         output = output[0]
     else:
@@ -2331,7 +2403,7 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
         if if_multiple_take_shortest:
           # find shortest
           isort = np.argsort([len(elm) for elm in list2search_fnd])
-          output = output[isort[:nreq]]
+          output = arrayify(output)[isort[:nreq]].tolist()
           warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
                format(ifnd.size, nreq), category=ShortestElementTakenWarning)
         else:
@@ -2535,3 +2607,159 @@ def get_file(filepart=None, dirname=None, ext=None):
     raise FileNotFoundError("The file *{:s}* does not exist".format(filename))
 
   return filename
+
+
+def wrap_string(string, maxlen, break_at_space=True, glue=True, offset=None,
+                offset_str=' '):
+  """
+  break a string and introduce a newline (\n)
+  """
+  # corner case: string short enough
+  if len(string) <= maxlen:
+    return string
+
+  if offset is None:
+    offset = 0
+
+  # store the lines separately and return integrated line if needed
+  lines = []
+
+  # remove leading and trailing spaces
+  string = string.strip()
+  # get indices of spaces
+  leftover = string
+
+  # loop until broken because nothing was left
+  while True:
+    # check the number of characters left
+    nof_left = len(leftover)
+
+    # check if the ibreak is further than the number left
+    if maxlen > nof_left:
+      ibreak = nof_left - 1
+
+    # if the chunck is still too large
+    else:
+      # find where there is a space
+      ispaces = np.array([pos for pos, char in enumerate(leftover) if char == ' '])
+
+      # what to do if there are no spaces?
+      if ispaces.size > 0:
+        ispaces = np.delete(ispaces, np.nonzero(ispaces > maxlen))
+
+        # if there is a space which can be used, set it to that one
+        if ispaces.size > 0:
+          ibreak = ispaces[-1]
+        else:
+          ibreak = maxlen - 1
+
+    # give the line and the remaining leftover
+    string = leftover[:(ibreak+1)].strip()
+    lines.append(string)
+    leftover = leftover[(ibreak+1):]
+
+    # if nothing left -> break
+    if len(leftover) == 0:
+      break
+
+  if glue:
+    prefix = offset*offset_str
+    lines_pf = listify(lines[0]) + [prefix + line for line in lines[1:]]
+    bstring = "\n".join(lines_pf)
+    return bstring
+
+  else:
+    return lines
+
+
+def eval_string_of_indices(string):
+  """
+  evaluate the sting that contains indices, may be a list or a 1:10:10 tyoe thing
+  """
+  # split into parts
+  parts = [part0.strip() for part0 in string.split(',')]
+  isels = []
+  for part in parts:
+    # if syntax a:b[:c]
+    if len(part.split(':')) > 1:
+      split_parts = [np.int(index) for index in part.split(':')]
+
+      # if a:b
+      if len(split_parts) == 2:
+        ifrom, ito = split_parts
+        istep = 1
+      # else: a:b:c
+      else:
+        ifrom, ito, istep = split_parts
+
+      # make into a list
+      isels += list(np.r_[ifrom:ito:istep])
+
+    # else: single index
+    else:  # no smart indexing
+      isels.append(np.int(part))
+
+  if len(isels) == 1:
+    isels = isels[0]
+
+  return isels
+
+
+def select_from_list(list_, multi=False, return_indices=False):
+  """
+  select an option form a list of optoins
+  """
+  class MultiError(Exception):
+    pass
+
+  for idx, item in enumerate(list_):
+    print("  [{:2d}] {}".format(idx, item))
+
+  # change string depending on multi
+  if multi:
+    qstring = "select items from the list - multiple items allowed: "
+  else:
+    qstring = "select a single item in the list: "
+
+  answer = input(qstring)
+  indices = eval_string_of_indices(answer)
+
+  # check if an error must be raised
+  if multi is False:
+    if not np.isscalar(indices):
+      raise MultiError("{:d} indices returned, but only 1 is allowed".format(len(indices)))
+
+  # check if the answer makes sense
+  valid_indices = np.r_[:len(list_)]
+  if np.union1d(valid_indices, indices).size > valid_indices.size:
+    raise ValueError("The given option indices (={}) are not (all) valid options".format(indices))
+
+  if return_indices:
+    return indices
+  else:
+    return list_[indices]
+
+
+def markerline(marker, length=None, text=None, doprint=True, edge=None):
+  """
+  print a header line with somke text in the middle
+  """
+  if length is None:
+    length = os.get_terminal_size().columns
+
+  if text is None:
+    text = ""
+
+  if edge is None:
+    edge = marker
+
+  offset = len(text)
+  lsize1 = (length - 2 - offset)//2
+  lsize2 = length - 2 - lsize1 - offset
+
+  line = "{:s}{:s}{:s}{:s}{:s}".format(edge, lsize1*marker, text, lsize2*marker, edge)
+
+  if doprint:
+    print(line)
+
+  return line
