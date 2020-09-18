@@ -11,8 +11,10 @@ import os
 from scipy.interpolate import interp1d
 import numexpr as ne
 import re
+from copy import deepcopy
 
 from scipy.fftpack import fftshift
+from scipy.signal import find_peaks
 import os # noqa
 import sys # noqa
 import warnings as wn # noqa
@@ -21,6 +23,8 @@ import datetime as dt
 import pdb  # noqa
 from warnings import warn
 from matplotlib.colors import to_rgb
+
+import glob
 
 # import all subfunctions
 from .coordinate_transforms import *  # noqa
@@ -126,7 +130,7 @@ def make_array_like(input_, array_like):
   """
   make an input into an array like
   """
-  output = np.copy(input_)
+  output = deepcopy(input_)
   # from single elements to array of 1 element
   if np.ndim(input_) == 0:
     output = [input_,]
@@ -134,12 +138,32 @@ def make_array_like(input_, array_like):
   # convert to the right type
   if array_like == 'list' or array_like == 'np.ndarray':
     output = [*output,]
-    if array_like == 'np.ndarray':
-      output = np.array(output)
+    if array_like in ['array', 'ndarray', 'np.ndarray', 'numpy.ndarray']:
+      # check if kthe elements are of the same type
+      types = check_types_in_array_like(output)
+      # all same type
+      if len(types) == 1:
+        dtype = types.pop()
+      # if different types -> dtype=object
+      else:
+        dtype = np.object
+      output = np.array(output, dtype=dtype)
   elif array_like == 'tuple':
     output = (*output,)
+  else:
+    raise ValueError("The array_like given ({}) is not valid".format(array_like))
 
   return output
+
+
+def check_types_in_array_like(array_like):
+  """
+  check the type of all elements in an array-like
+  """
+  types = set()
+  [types.add(type(elm)) for elm in array_like]
+
+  return types
 
 
 def color_vector(nof_points, base_color, os=0.25):
@@ -418,26 +442,24 @@ def calc_frequencies(nof_taps, fs, center_zero=True):
   freqs : ndarray of floats
           An array containing the frequencies of the spectrum
   '''
-  if center_zero:
-    taps = np.arange(-nof_taps//2, nof_taps//2)
-  else:
-    taps = np.arange(nof_taps)
 
-  freqs = taps*(fs/nof_taps)
+  # subtract to get the number of intervals/steps
+  nof_steps = nof_taps
+  if center_zero:
+    taps = np.arange(-nof_steps//2, nof_steps//2)
+  else:
+    taps = np.arange(nof_steps)
+
+  freqs = taps*(fs/nof_steps)
 
   return freqs
 
 
-def plot_spectrum(signal, plotspec='b.-', fs=1., nof_taps=None, mode='default', center_zero=True,
-                  ax=None, **plot_kwargs):
-  '''
-  Plot the spectrum of an input signal (or a filter spec)
-
-  Positional arguments:
-  ---------------------
-  ... to be filled in an continued ....continued
-  '''
-
+def spectrum(signal, fs=1., nof_taps=None, scaling='default', center_zero=True, full=True,
+             dB=True, Plot=True, **plot_kwargs):
+  """
+  get the spectrum of a signal
+  """
   signal = signal.reshape(-1)
   if nof_taps is None:
     nof_taps = signal.size
@@ -448,22 +470,173 @@ def plot_spectrum(signal, plotspec='b.-', fs=1., nof_taps=None, mode='default', 
   if center_zero:
     spect = fftshift(spect)
 
-  if mode == 'default':
-    pass
-  elif mode == 'per_sample':
-    spect /= nof_taps
-  elif mode == 'normalize':
-    spect /= np.abs(Y).max()
+  if scaling == 'default':
+    sf = 1.
+  elif scaling == 'per_sample':
+    sf = nof_taps
+  elif scaling == 'normalize':
+    sf = np.abs(spect).max()
+  else:
+    raise NotImplementedError("The value for *scaling={}* is not implemented".format(scaling))
 
-  # plot the stuff
-  if ax is None:
-    fig = plt.figure(figname('{:d}-point spectrum'.format(nof_taps)))
-    ax = fig.add_subplot(111)
+  spect /= sf
 
-  ax.plot(freqs, logmod(spect), plotspec, **plot_kwargs)
-  plt.show(block=False)
+  if not full:
+    nof_samples = freqs.size
+    freqs = freqs[:nof_samples//2]
+    spect = spect[:nof_samples//2]
 
-  return (ax, spect)
+  if dB:
+    spect = db(spect)
+
+  if Plot:
+    # plot the stuff
+    if 'ax' in plot_kwargs.keys():
+      ax = plot_kwargs.pop('ax')
+    else:
+      fig = plt.figure(figname('{:d}-point spectrum'.format(freqs.size)))
+      ax = fig.add_subplot(111)
+
+    ax.plot(freqs, spect, 'b-', **plot_kwargs)
+    plt.show(block=False)
+
+  return freqs, spect
+
+
+def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
+                              max_nof_peaks=None, min_rel_height_db=10, Plot=False, **plotkwargs):
+  """
+  find the frequencies in the spectrum of a signal
+
+  Arguments:
+  ----------
+  signal : ndarray of floats
+           The signal in floats
+  fs : scalar
+       The sample frequency in Hz
+  f1p : scalar or None, default=None
+        The 1P frequency. If None, f1p=1.0 will be given. Only if f1p != 1, the plots are adjusted
+  max_nof_peaks : [ None | int], default=None
+                  The maximum number of peaks to be returned
+                  None implies all peaks are returned and is effectively the same as np.inf
+  min_rel_height_db : scalar, default=10
+                      The minimimum relative height from the main spectral frequency above which
+                      additional peaks can be found. the sign is of no importance and will be
+                      corrected for
+  Plot : bool, default=False
+         Whether to plot the spectrum and the peaks superimposed
+  scaling : [ 'default' | 'normalize' | 'per_sample' ], default='default'
+                 The fourier transform scaling. These are:
+                 - 'default': simple FFT, no scaling
+                 - 'normalize': the main frequency is scaled to 0 dB
+                 - 'per_sample': the scaling is equal to (1/nof_samples)
+
+  Returns:
+  --------
+  fpeaks : ndarray of floats
+           An array containing the peak frequencies in Hz or xP's, depending on the value for
+           *f1p*
+  peakvals : ndarray of floats
+             The peak values, they take the value of the *scaling* into account
+
+
+  """
+  if f1p is None:
+    f1p = 1.0
+
+  # corner case: no signal at all
+  if np.isclose(rms(signal), 0.):
+    return np.array([])
+
+  # corner case: constant signal
+  if np.isclose(np.std(signal), 0.):
+    return np.array([0.])
+
+  nof_samples = signal.size
+  fs_ = fs/f1p
+
+  signal_unbias = signal - np.mean(signal)
+  freqs, Ydb_debias = spectrum(signal_unbias, fs=fs_, center_zero=False, scaling='default',
+                               full=False, Plot=False, dB=True)
+
+  # calculate the minimum distance between samples
+  dP_per_sample = fs_/(2.*nof_samples)
+  distance_in_P = 0.4
+  distance_in_samples = 1 + np.int(0.5 + distance_in_P/dP_per_sample)
+
+  # find the peaks taking the distance of P/2 into account
+  height = Ydb_debias.max() - np.abs(min_rel_height_db)
+  ipeaks = find_peaks(Ydb_debias, height=height, distance=distance_in_samples)[0]
+
+  # remove peaks in the first interval [0, P/2]
+  idel = np.argwhere(ipeaks < distance_in_samples)
+  ipeaks = np.delete(ipeaks, idel)
+
+  isort = np.argsort(Ydb_debias[ipeaks])[-1::-1]
+  ipeaks_sorted = ipeaks[isort]
+
+  nfnd = ipeaks_sorted.size
+  if max_nof_peaks is None:
+    max_nof_peaks = nfnd
+  else:
+    max_nof_peaks = np.fmin(nfnd, max_nof_peaks)
+
+  inds = ipeaks_sorted[:max_nof_peaks]
+  fpeaks = freqs[inds]
+  peakvals = Ydb_debias[inds]
+
+  if peakvals.max() <= (db(signal.sum()) + np.abs(min_rel_height_db)):
+    fpeaks = np.insert(fpeaks, 0, 0)
+    peakvals = np.insert(peakvals, 0, db(signal.sum()))
+    # sort
+    isort = np.argsort(fpeaks)
+    fpeaks = fpeaks[isort]
+    peakvals = peakvals[isort]
+
+  if scaling.endswith('normalize'):
+    offset = np.max(peakvals)
+  elif scaling.endswith('per_sample'):
+    offset = db(signal.size)
+  elif scaling.endswith('default'):
+    offset = 0.
+  else:
+    raise NotImplementedError("The *scaling={}* is not implemented (yet)")
+
+  peakvals -= offset
+
+  if Plot:
+    if 'ax' in plot_kwargs.keys():
+      ax = plot_kwargs['ax']
+    else:
+      fig = plt.figure(figname("spectrum"))
+      ax = fig.add_subplot(111)
+      ax.set_title("The spectrum and the found peaks")
+      if np.isclose(f1p, 1.0):
+        ax.set_xlabel("Frequency [Hz]")
+      else:
+        ax.set_xlabel("relative frequecy [xP]")
+
+      if scaling.endswith("normalize"):
+        ax.set_ylabel("Power [dBc]")
+      else:
+        ax.set_ylabel("Power [dB]")
+
+    xs, ys = spectrum(signal, fs=fs_, center_zero=False, scaling=scaling, full=False,
+                      dB=True, Plot=False)
+
+    ax.plot(xs, Ydb_debias - offset, 'k--')
+    ax.plot(xs, ys, 'b-')
+    # plot_spectrum(signal, 'b-', fs=fs_, center_zero=False, scaling=scaling, full=False,
+    #               ax=ax)
+    ax.plot(fpeaks, peakvals, 'ro', mfc='none')
+    threshold = ys.max() - np.abs(min_rel_height_db)
+    ax.axhline(threshold, color='g', linestyle='--')
+    ax.text(xs[-1], threshold, "threshold @ {:0.1f} dBc".format(float(threshold)),
+            va='bottom', ha='right')
+    plt.show(block=False)
+    plt.draw()
+
+  return fpeaks, peakvals
 
 
 def print_struct_array(arr, varname='', prefix='| ', verbose=True,
@@ -1315,8 +1488,6 @@ def ndprint(arr, fs='{:0.2f}'):
 
   print([fs.format(elm) for elm in arr])
 
-  return None
-
 
 def dinput(question, default, include_default_in_question=True):
   '''
@@ -1746,7 +1917,7 @@ def tighten(fig=None, orientation='landscape', forward=True):
   return None
 
 
-def resize_figure(fig=None, size=None, orientation='landscape', tight_layout=True):
+def resize_figure(fig=None, size='amax', orientation='landscape', tight_layout=True):
   '''
   resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
   the display on the screen.None
@@ -1773,18 +1944,33 @@ def resize_figure(fig=None, size=None, orientation='landscape', tight_layout=Tru
 
   See also: jktools.tighten(), jktools.amax_size_inches
   '''
+  from tkinter import Tk
 
   if fig is None:
     fig = plt.gcf()
 
-  if size is None:
-    if orientation == 'landscape':
-      fig.set_size_inches(amax_size_inches, forward=True)
-    elif orientation == 'portrait':
-      fig.set_size_inches((amax_size_inches[1]/np.sqrt(2), amax_size_inches[1]), forward=True)
+  # if; maximize
+  if size.endswith("maximize"):
+    mng = plt.get_current_fig_manager()
+    mng.window.showMaximized()
+
+  # else: A paper dimensions (a/b=sqrt(2))
+  elif size.startswith('a'):
+    if size == 'amax':
+      root = Tk()
+      w0, h0 = paper_A_dimensions(0, units='inches', orientation=orientation)
+      hscreen = root.winfo_screenmmheight()/2.54  # go to inches
+      root.destroy()
+
+      h = hscreen
+      w = w0*(hscreen/h0)
+
     else:
-      raise ValueError('keyword argument orientation="{}" is not valid.'
-                       ' Only "landscape" and "portrait" are.'.format(orientation))
+      w, h = paper_A_dimensions(np.int(size[1:]), units='inches', orientation=orientation)
+
+    fig.set_size_inches(w, h, forward=True)
+
+  # else: witdth and height are given
   else:
     fig.set_size_inches(*size, forward=True)
 
@@ -1792,6 +1978,41 @@ def resize_figure(fig=None, size=None, orientation='landscape', tight_layout=Tru
     tighten(fig, orientation=orientation)
 
   return None
+
+
+def paper_A_dimensions(index, units="m", orientation='landscape'):
+  """
+  calculate the paper dimensions for A<x> paper sizes
+
+  The return value is a tuple (short size, long size)
+  """
+  if units == 'm':
+    sf = 1.
+  elif units == 'mm':
+    sf = 1000.
+  if units == 'cm':
+    sf = 100.
+  elif units.startswith("inch"):
+    sf = 1./0.0254
+  else:
+    raise ValueError("The units={} is not recognized".format(units))
+
+  # define the base alphaA
+  alpha_A = sf*(2)**(1./4.)
+
+  sht = alpha_A*2**(-(index+1)/2.)
+  lng = alpha_A*2**(-index/2.)
+
+  if orientation == 'landscape':
+    w = lng
+    h = sht
+  elif orientation == 'portrait':
+    w = sht
+    h = lng
+  else:
+    raise ValueError("The value for *orientation* ({}) is not valid".format(orientation))
+
+  return w, h
 
 
 def abc(a, b, c):
@@ -1885,7 +2106,7 @@ def exp_fast(data):
   return ne.evaluate('exp(data)')
 
 
-def qplot(*args, newfig=True, **kwargs):
+def qplot(*args, ax=None, **kwargs):
   """
   a quicklook plot
   """
@@ -1900,11 +2121,11 @@ def qplot(*args, newfig=True, **kwargs):
     kwargs.update(**kwargs_plot)
 
   # plot in current figure
-  if newfig:
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
+  if ax is None:
+    fig, ax = plt.subplots(1, 1)
   else:
-    ax = plt.gca()
+    if isinstance(ax, str) and ax.endswith("hold"):
+      ax = plt.gca()
   ax.plot(*args, **kwargs)
   plt.show(block=False)
   plt.draw()
@@ -2023,19 +2244,51 @@ def ind2rgba(arr, cmap, alphas=None):
     return arr_rgb
 
 
-def short_string(str, istart=2, maxlength=8):
+def short_string(str_, maxlength, what2keep='edges', placeholder="..."):
   """
   shorten a long string to keep only the start and end parts connected with dots
   """
-  if len(str) <= maxlength:
-    return str
+  strlen = len(str_)
+  pllen = len(placeholder)
+  if strlen <= maxlength:
+    return str_
 
-  return str[:istart] + "..." + str[-(maxlength-istart):]
+  # check if it is in the middle
+  if what2keep in ('middle', 'center', 'centre'):
+    what2keep = strlen//2 - pllen
+
+  if isinstance(what2keep, (np.int_, int, float, np.float_)):
+    what2keep = np.int(what2keep + 0.5)
+    nof_chars = maxlength - 2*pllen
+    istart_keep = np.int(what2keep + 0.5)
+    iend_keep = istart_keep + nof_chars
+    # if start point is less than length of placeholder there is no point in using placeholder
+    if istart_keep < pllen:
+      delta = pllen - istart_keep
+      strout = str_[0:iend_keep+delta] + placeholder
+
+    elif iend_keep > strlen:
+      delta = iend_keep - strlen
+      strout = placeholder + str_[istart_keep-delta:]
+    else:
+      strout = placeholder + str_[istart_keep:iend_keep] + placeholder
+  elif what2keep == 'edges':
+    nstart = (maxlength - pllen)//2
+    nend = maxlength - pllen - nstart
+    strout = str_[:nstart] + placeholder + str_[-nend:]
+  elif what2keep in ('start', 'begin'):
+    strout = str_[:(maxlength - pllen)] + placeholder
+  elif what2keep == 'end':
+    strout = placeholder + str_[-(maxlength - pllen):]
+  else:
+    raise ValueError("The value for `what2keep` ({}) is not valid".format(what2keep))
+
+  return strout
 
 
 def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, nreq=None,
                                 return_strings=False, strmatch='full', raise_except=True,
-                                if_multiple_take_shortest=True):
+                                if_multiple_take_shortest=False):
   """
   search the variable names for a certain substring list. Case insensitivity may be enforced
 
@@ -2077,6 +2330,8 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
   class EmptyListReturnedWarning(UserWarning):
     pass
 
+  class NothingFoundError(Exception):
+    pass
 
   if substrs is None:
     return []
@@ -2092,6 +2347,7 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
       raise ValueError("The setting for `strmatch` ({}) is not valid".format(strmatch))
 
   # process fully if substrs is not NONE
+  list2search = arrayify(list2search)
   if substrs is None:
     list2search_fnd = list2search.copy()
 
@@ -2133,7 +2389,10 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
     output = list2search_fnd
 
   if nreq is not None:
-    if len(output) == nreq:
+    if len(output) == 0:
+      raise NothingFoundError("The substr ({}) was not found in : {}".format(substrs, list2search))
+
+    elif len(output) == nreq:
       if nreq == 1:
         output = output[0]
     else:
@@ -2144,13 +2403,13 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
         if if_multiple_take_shortest:
           # find shortest
           isort = np.argsort([len(elm) for elm in list2search_fnd])
-          output = output[isort[:nreq]]
+          output = arrayify(output)[isort[:nreq]].tolist()
           warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
                format(ifnd.size, nreq), category=ShortestElementTakenWarning)
         else:
-          output = []
-          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware",
-               category=EmptyListReturnedWarning)
+          output = np.array([])
+          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware".
+               format(ifnd.size, nreq), category=EmptyListReturnedWarning)
 
   return output
 
@@ -2231,3 +2490,276 @@ def modify_strings(strings, globs=None, specs=None):
   return modstrings
 
 
+def improvedshow(matdata, clabels=None, rlabels=None, show_values=True, fmt="{:0.1g}",
+                 invalid=None, ax=None, title=None, fignum=None, **kwargs):
+  """
+  create a matrix plot via matshow with some extras like show the values
+  """
+
+  if np.isscalar(invalid):
+    invalid = [invalid - np.spacing(invalid), invalid + np.spacing(invalid)]
+  nr, nc = matdata.shape
+  if ax is None:
+    fig, ax = plt.subplots(1, 1, num=figname(fignum))
+  else:
+    fig = ax.figure
+
+  ax.imshow(matdata, interpolation='nearest', **kwargs)
+
+  ax.set_xticks(np.r_[:nc])
+  if clabels is None:
+    ax.set_xticklabels(ax.get_xticks(), fontsize=7)
+  else:
+    ax.set_xticklabels(clabels, fontsize=7, rotation=45, va='top', ha='right')
+
+  ax.set_yticks(np.r_[:nr])
+  if rlabels is None:
+    ax.set_yticklabels(ax.get_yticks(), fontsize=7)
+  else:
+    ax.set_yticklabels(rlabels, fontsize=7)
+  ax.tick_params(axis='both', which='major', length=0)
+
+  # make minor ticks for dividing lines
+  ax.set_xticks(np.r_[-0.5:nc+0.5:1], minor=True)
+  ax.set_yticks(np.r_[-0.5:nr+0.5:1], minor=True)
+
+  ax.grid(which='minor', linewidth=1)
+
+  if 'aspect' not in kwargs.keys():
+    kwargs['aspect'] = 'auto'
+  # show the values in the matrix
+  if show_values:
+    for irow in range(nr):
+      for icol in range(nc):
+        cellval = matdata[irow, icol]
+        # check if is valid
+        if (invalid is None) or not (invalid[0] < cellval < invalid[1]):
+          # check color
+          # if cellval.sum() < 0.5:
+          #   color = [0.75, 0.75, 0.75]
+          # else:
+          #   color = [0., 0., 0]
+          ax.text(icol, irow, fmt.format(matdata[irow, icol]), fontsize=6, ha='center',
+                  color='k', va='center', clip_on=True, bbox={'boxstyle':'square', 'pad':0.0,
+                                                              'facecolor': 'none', 'lw': 0.,
+                                                              'clip_on': True})
+
+  if title is not None:
+    ax.set_title(title, fontsize=11, fontweight='bold')
+
+  plt.show(block=False)
+  fig.tight_layout()
+  plt.draw()
+
+  return fig, ax
+
+
+def get_file(filepart=None, dirname=None, ext=None):
+  """
+  get the file if only a part is given, otherwise it is transparent
+  """
+
+  # handle missing dirname
+  if dirname is None:
+    dirname = ''
+
+  # handle missing ext or just without a leading dot
+  if ext is None:
+    ext = ''
+
+  # if no filepart is given go immediately to select_file()
+  if filepart is None:
+    files_found = []
+  else:
+
+    # work on the given filepart -> split off extension if present
+    filepart, given_ext = os.path.splitext(filepart)
+    if ext is None:
+      ext = given_ext
+    # check if it has a leading dot .
+    elif not ext.startswith('.'):
+      ext = "." + ext
+
+    # load the files
+    files_found = glob.glob(os.path.join(dirname, filepart + "*" + ext))
+
+  # ------------- files_found determines what's next ----------------------------
+  # check if anything was found
+  if len(files_found) == 1:
+    filename = files_found[0]
+  elif len(files_found) > 1:
+    print("Multiple files found. Select the wanted one")
+    for ifile, file in enumerate(files_found):
+      print("[{:d}] {:s}".format(ifile, file))
+    index_chosen = np.int(input("Select the file to load: "))
+    filename = files_found[index_chosen]
+  else:
+    filetypes = [("All files", "*.*")]
+    defaultextension = None
+    if ext.startswith('.'):
+      filetypes = [("{0:s} files".format(ext), ext)] + filetypes
+      defaultextension = ext
+
+    filename = select_file(initialdir=dirname, filetypes=filetypes, title="select a file",
+                           defaultextension=defaultextension)
+
+  if not os.path.exists(filename):
+    raise FileNotFoundError("The file *{:s}* does not exist".format(filename))
+
+  return filename
+
+
+def wrap_string(string, maxlen, break_at_space=True, glue=True, offset=None,
+                offset_str=' '):
+  """
+  break a string and introduce a newline (\n)
+  """
+  # corner case: string short enough
+  if len(string) <= maxlen:
+    return string
+
+  if offset is None:
+    offset = 0
+
+  # store the lines separately and return integrated line if needed
+  lines = []
+
+  # remove leading and trailing spaces
+  string = string.strip()
+  # get indices of spaces
+  leftover = string
+
+  # loop until broken because nothing was left
+  while True:
+    # check the number of characters left
+    nof_left = len(leftover)
+
+    # check if the ibreak is further than the number left
+    if maxlen > nof_left:
+      ibreak = nof_left - 1
+
+    # if the chunck is still too large
+    else:
+      # find where there is a space
+      ispaces = np.array([pos for pos, char in enumerate(leftover) if char == ' '])
+
+      # what to do if there are no spaces?
+      if ispaces.size > 0:
+        ispaces = np.delete(ispaces, np.nonzero(ispaces > maxlen))
+
+        # if there is a space which can be used, set it to that one
+        if ispaces.size > 0:
+          ibreak = ispaces[-1]
+        else:
+          ibreak = maxlen - 1
+
+    # give the line and the remaining leftover
+    string = leftover[:(ibreak+1)].strip()
+    lines.append(string)
+    leftover = leftover[(ibreak+1):]
+
+    # if nothing left -> break
+    if len(leftover) == 0:
+      break
+
+  if glue:
+    prefix = offset*offset_str
+    lines_pf = listify(lines[0]) + [prefix + line for line in lines[1:]]
+    bstring = "\n".join(lines_pf)
+    return bstring
+
+  else:
+    return lines
+
+
+def eval_string_of_indices(string):
+  """
+  evaluate the sting that contains indices, may be a list or a 1:10:10 tyoe thing
+  """
+  # split into parts
+  parts = [part0.strip() for part0 in string.split(',')]
+  isels = []
+  for part in parts:
+    # if syntax a:b[:c]
+    if len(part.split(':')) > 1:
+      split_parts = [np.int(index) for index in part.split(':')]
+
+      # if a:b
+      if len(split_parts) == 2:
+        ifrom, ito = split_parts
+        istep = 1
+      # else: a:b:c
+      else:
+        ifrom, ito, istep = split_parts
+
+      # make into a list
+      isels += list(np.r_[ifrom:ito:istep])
+
+    # else: single index
+    else:  # no smart indexing
+      isels.append(np.int(part))
+
+  if len(isels) == 1:
+    isels = isels[0]
+
+  return isels
+
+
+def select_from_list(list_, multi=False, return_indices=False):
+  """
+  select an option form a list of optoins
+  """
+  class MultiError(Exception):
+    pass
+
+  for idx, item in enumerate(list_):
+    print("  [{:2d}] {}".format(idx, item))
+
+  # change string depending on multi
+  if multi:
+    qstring = "select items from the list - multiple items allowed: "
+  else:
+    qstring = "select a single item in the list: "
+
+  answer = input(qstring)
+  indices = eval_string_of_indices(answer)
+
+  # check if an error must be raised
+  if multi is False:
+    if not np.isscalar(indices):
+      raise MultiError("{:d} indices returned, but only 1 is allowed".format(len(indices)))
+
+  # check if the answer makes sense
+  valid_indices = np.r_[:len(list_)]
+  if np.union1d(valid_indices, indices).size > valid_indices.size:
+    raise ValueError("The given option indices (={}) are not (all) valid options".format(indices))
+
+  if return_indices:
+    return indices
+  else:
+    return list_[indices]
+
+
+def markerline(marker, length=None, text=None, doprint=True, edge=None):
+  """
+  print a header line with somke text in the middle
+  """
+  if length is None:
+    length = os.get_terminal_size().columns
+
+  if text is None:
+    text = ""
+
+  if edge is None:
+    edge = marker
+
+  offset = len(text)
+  lsize1 = (length - 2 - offset)//2
+  lsize2 = length - 2 - lsize1 - offset
+
+  line = "{:s}{:s}{:s}{:s}{:s}".format(edge, lsize1*marker, text, lsize2*marker, edge)
+
+  if doprint:
+    print(line)
+
+  return line
