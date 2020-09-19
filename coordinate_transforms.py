@@ -1128,7 +1128,6 @@ def nhcs_is_enu_warning(func):
 
 
 nh2p = nhcs_is_enu_warning(enu2p)
-nh2p = nhcs_is_enu_warning(enu2p)
 p2nh = nhcs_is_enu_warning(p2enu)
 nh2ecef = nhcs_is_enu_warning(enu2ecef)
 ecef2nf = nhcs_is_enu_warning(ecef2enu)

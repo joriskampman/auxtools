@@ -35,7 +35,6 @@ lightspeed = 299706720.0
 boltzmann = 1.3806485279e-23
 r_earth = 6371.0088e3
 radius_earth = r_earth
-amax_size_inches = (9.82*np.sqrt(2), 9.82)
 d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
@@ -43,7 +42,19 @@ T0 = 290
 
 def nanplot(*_args, **kwargs):
   """
-  initiate a nan plot for updating/animations
+  initiate a nan plot for updating/animations.
+  This plot will show up as empty, however it contains NaN values, so it is not empty
+
+  arguments:
+  ----------
+  *_args : array-like
+           List of arguments to are passed to plt.plot function
+  **kwargs : dict
+             keyword arguments dictionary to be passed to the plt.plot() function
+
+  returns:
+  --------
+  ln : line oject
   """
   if 'ax' in kwargs:
     ax = kwargs.pop('ax')
@@ -63,6 +74,20 @@ def nanplot(*_args, **kwargs):
 def split_complex(cplx, sfx=1, sfy=1):
   """
   split a complex point in real and imaginary parts with a scale factor
+
+  arguments:
+  ----------
+  cplx : (ndarray of) complex value(s)
+         The complex value or array of to be split
+  sfx: numerical value, default=1
+       scale factor for the real part
+  sfy: number, default=1
+       scale factor for the imaginary part
+
+  returns:
+  --------
+  (re, im): 2-tuple of floats
+            The scaled real and imaginary parts of the complext value
   """
   return sfx*np.real(cplx), sfy*np.imag(cplx)
 
@@ -70,9 +95,22 @@ def split_complex(cplx, sfx=1, sfy=1):
 def monospace(array, delta=None):
   """
   straighten an array which has rounding errors
+
+  arguments:
+  ----------
+  array: ndarray of floats
+         the almost monospaced array
+  delta: [None | float], default=None
+         The delta value for the monospaced grid. If *None* it is calculated as the median
+         difference value
+
+  returns:
+  --------
+  array : ndarray of floats
+          The resulting monospaced grid
   """
   if delta is None:
-    delta = np.mean(np.diff(array))
+    delta = np.median(np.diff(array))
 
   array = np.r_[:array.size]*delta
 
@@ -81,7 +119,21 @@ def monospace(array, delta=None):
 
 def get_closest_index(value_wanted, values, suppress_warnings=False):
   """
-  get the closest index
+  get the index of the value closest to the wanted value in an array
+
+  arguments:
+  ----------
+  value_wanted : number
+                 value to be found in the array
+  values: ndarray
+          array in which to search
+  suppress_warnings: bool, default=False
+                     flag indicating if a warning must be issued when no exact match can be found
+
+  returns:
+  --------
+  ifnd : integer
+         The index where in the array the wanted value is found; or the closest value
   """
   ifnd_arr = np.argwhere(np.isclose(values, value_wanted)).ravel()
   if ifnd_arr.size > 0:
@@ -1800,7 +1852,6 @@ def subplot_layout(nof_subplots, wh_ratio=np.sqrt(2)):
 
   See also: jktools.ind2sub()
             jktools.sub2ind()
-            jktools.amax_size_inches()
             jktools.resize_figure()
             jktools.tighten()
 
@@ -1885,7 +1936,6 @@ def tighten(fig=None, orientation='landscape', forward=True):
   *tighten* will return None
 
   See also: jktools.resize_figure(),
-            jktools.amax_size_inches,
             matplotlib.pyplot.tight_layout()
 
   Author: Joris Kampman, Thales NL, 2017
@@ -1942,7 +1992,6 @@ def resize_figure(fig=None, size='amax', orientation='landscape', tight_layout=T
   resize_figure returns None, but immediately updates the figure size via the function
   fig.set_size_inches(..., forward=True)
 
-  See also: jktools.tighten(), jktools.amax_size_inches
   '''
   from tkinter import Tk
 
@@ -2031,7 +2080,7 @@ def abc(a, b, c):
   return x_min, x_max
 
 
-def F1_Score(nof_true_pos, nof_false_pos, nof_false_neg):
+def f1_score(nof_true_pos, nof_false_pos, nof_false_neg):
   """
   calculates the F1 score of a cross-validity check on a trained set
 
@@ -2206,7 +2255,7 @@ def str2timedelta(numstr):
   return dt_delta
 
 
-def convert_to_list_of_tuples(input_):
+def _convert_to_list_of_tuples(input_):
   """
   make an input to a list of tuples
   """
@@ -2352,7 +2401,7 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
     list2search_fnd = list2search.copy()
 
   else:
-    substrs = convert_to_list_of_tuples(substrs)
+    substrs = _convert_to_list_of_tuples(substrs)
 
     if not is_case_sensitive:
       list2search_sens = list2search.copy()
@@ -2468,8 +2517,8 @@ def modify_strings(strings, globs=None, specs=None):
   """
 
   modstrings = listify(strings)
-  globs = convert_to_list_of_tuples(globs)
-  specs = convert_to_list_of_tuples(specs)
+  globs = _convert_to_list_of_tuples(globs)
+  specs = _convert_to_list_of_tuples(specs)
 
   if globs is not None:
     for glrep in globs:
@@ -2707,7 +2756,22 @@ def eval_string_of_indices(string):
 
 def select_from_list(list_, multi=False, return_indices=False):
   """
-  select an option form a list of optoins
+  select an option form a list of options
+
+  arguments:
+  ----------
+  list_ : array-like
+          The array-like from which to select an option
+  multi : bool, default=False
+          flag that indicates if it is acceptable to select multiple options
+  return_indices : bool, default=False
+                   whether to return the indices or the options themselves (strings)
+
+  returns:
+  --------
+  out : array-like of str or ints
+        Depending on the *return_indices* flag it returns an array-like containing strings or
+        indices
   """
   class MultiError(Exception):
     pass
@@ -2742,7 +2806,25 @@ def select_from_list(list_, multi=False, return_indices=False):
 
 def markerline(marker, length=None, text=None, doprint=True, edge=None):
   """
-  print a header line with somke text in the middle
+  print a header line with some text in the middle
+
+  arguments:
+  ----------
+  marker : str
+           The string with which to make the line
+  length : None or int, default=None
+           The length of the line, if None, the terminal size is taken as the length
+  text : str or None, default=None
+         The text to be placed in the center. If None, not text is displayed
+  doprint : bool, default=True
+            flag to state if the line must be printed or only returned
+  edge : None or str, default=None
+         The character at the edges of the line. If None edge=marker
+
+  returns:
+  --------
+  line : str
+         The created line
   """
   if length is None:
     length = os.get_terminal_size().columns
