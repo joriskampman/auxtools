@@ -1,0 +1,7 @@
+*.pyc
+__pycache__
+*.so
+*.o
+*.zip
+*.html
+*.htm
