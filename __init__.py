@@ -1303,12 +1303,12 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
 
     return None
 
-  if type(strings) is list:
+  if isinstance(strings, (list, tuple)):
     nof_rows = len(strings)
     if defaults is None:
-      defaults = [None] * nof_rows
+      defaults = [None]*nof_rows
     if types is None:
-      types = [str] * nof_rows
+      types = [str]*nof_rows
   else:  # else: single row
     nof_rows = 1
     strings = [strings]
@@ -1323,13 +1323,13 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   for irow in np.arange(nof_rows):
 
     # create tkvars of the correct type
-    if types[irow] is float:
+    if isinstance(types[irow], (np.float_, float)):
       tkvar.append(tk.DoubleVar(master, value=defaults[irow]))
 
-    elif types[irow] is int:
+    elif isinstance(types[irow], (np.int_, int)):
       tkvar.append(tk.IntVar(master, value=defaults[irow]))
 
-    elif types[irow] is str:
+    elif isinstance(types[irow], str):
       tkvar.append(tk.StringVar(master, value=defaults[irow]))
 
     else:
