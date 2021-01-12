@@ -2219,6 +2219,205 @@ def qplot(*args, ax="hold", **kwargs):
   return ax
 
 
+def ctform_mat(angles_xyz, translation_xyz, order_rotations, augment=True):
+  '''
+  gives the rotation matrix for a sequence of rotations around the principal axes
+
+  Arguments:
+  ----------
+  angles_xyz : array-like(3) of floats
+               The rotations around the x, y and z axes in radians
+  translation_xyz : array-like(3) of floats
+                    The translations in the x, y and z directions
+  order_rotations : ('zxy') str (3), optional
+                    A string of 3 chararcters giving the rotations order
+  augment : (True) Boolean
+            Indicates whether to augment the matrix, that is, to append a 1 to the 3x1 vector to
+            make it into a 4x1 vector
+
+  returns:
+  --------
+  out : 3x3 or 4x4 ndarray of floats
+        The rotation matrix (3x3) or augmented transformation matrix (4x4)
+
+  See Also:
+  ---------
+  coordinate_transforms.Rotate : class handling all kinds of rotations
+  coordinate_transforms.ctform : rotates a set of points using the matrix from *ctform_mat*
+  coordinate_transforms.rotx : gives the rotation matrix around the x-axis
+  coordinate_transforms.roty : gives the rotation matrix around the y-axis
+  coordinate_transforms.rotz : gives the rotation matrix around the z-axis
+  '''
+
+  if angles_xyz is None:
+    angles_xyz = [0.]*3
+
+  if translation_xyz is None:
+    translation_xyz = np.zeros((3, 1), dtype=float)
+
+  # convert to matrix
+  if type(translation_xyz) in [list, tuple]:
+    translation_xyz = np.array(translation_xyz).reshape(-1, 1)
+
+  # create M = [R, T]
+  rotmat = rot3(angles_xyz, order_rotations)
+
+  # combine R and T
+  tform_matrix = np.hstack((rotmat, translation_xyz))
+
+  # check if it has to be augmented
+  if augment:
+    tform_matrix = np.vstack((tform_matrix, np.array([0., 0., 0., 1.])))
+
+  return tform_matrix
+
+
+def ctform(points, angles_xyz, translation_xyz, order_rotations):
+  '''
+  coordinate transformation given a set of points
+
+  Arguments:
+  ----------
+  points : 3xN ndarray of floats
+           the 3D coordinates of the points in the non-transformed coordinate system
+  angles_xyz : array-like(3) of floats
+               The rotations around the x, y and z axes in radians
+  translation_xyz : array-like(3) of floats
+                    The translations in the x, y and z directions
+  order_rotations : ('zxy') str (3)
+                    A string of 3 chararcters giving the rotations order
+
+  returns:
+  --------
+  out : 3xN ndarray of floats
+        The rotated and translated points in the coordinate system
+
+  See Also:
+  ---------
+  coordinate_transforms.Rotate : class handling all kinds of rotations
+  coordinate_transforms.ctform_mat : Calculates the rotation matrix used in *ctform*
+  coordinate_transforms.rotx : gives the rotation matrix around the x-axis
+  coordinate_transforms.roty : gives the rotation matrix around the y-axis
+  coordinate_transforms.rotz : gives the rotation matrix around the z-axis
+  '''
+  tform_matrix = ctform_mat(angles_xyz, translation_xyz, order_rotations, augment=False)
+
+  # augment points with ones
+  points_aug = np.vstack((points, np.ones(points[0].shape)))
+
+  # do the transformation
+  points_tformed = tform_matrix.dot(points_aug)
+
+  return points_tformed
+
+
+def rotx(rx):
+  '''
+  rotation around the x-axis
+
+  Arguments:
+  ----------
+  rx : float
+       The angles in radians with which to rotate
+
+  Returns:
+  --------
+  rotmat : 3x3 ndarray of floats
+           The rotation matrix around the x-axis based on *rx*
+  '''
+  rotmat = np.array([[1, 0, 0],
+                     [0, np.cos(rx), -np.sin(rx)],
+                     [0, np.sin(rx), np.cos(rx)]])
+  return rotmat
+
+
+def roty(ry):
+  '''
+  rotation around the y-axis
+
+  Arguments:
+  ----------
+  ry : float
+       The angles in radians with which to rotate
+
+  Returns:
+  --------
+  rotmat : 3x3 ndarray of floats
+           The rotation matrix around the y-axis based on *ry*
+  '''
+
+  rotmat = np.array([[np.cos(ry), 0, np.sin(ry)],
+                     [0, 1, 0],
+                     [-np.sin(ry), 0, np.cos(ry)]])
+  return rotmat
+
+
+def rotz(rz):
+  '''
+  rotation around the z-axis
+
+  Arguments:
+  ----------
+  rz : float
+       The angles in radians with which to rotate
+
+  Returns:
+  --------
+  rotmat : 3x3 ndarray of floats
+           The rotation matrix around the z-axis based on *rz*
+  '''
+
+  rotmat = np.array([[np.cos(rz), -np.sin(rz), 0],
+                     [np.sin(rz), np.cos(rz), 0],
+                     [0, 0, 1]])
+  return rotmat
+
+
+def rot3(angles_xyz, order_rotations):
+  '''
+  create a 3x3 rotation matrix built-up from 3 principal rotation matrices
+
+  Positional Arguments:
+  ---------------------
+  angles_xyz : array-like (3)
+               an array like of 3 elements containing the rotations around the x, y and z-axis
+               respectively
+  order_rotations : str
+                    Indicating the order of rotations. May only contain characters 'x', 'y' and 'z'
+                    in any order or permutation. The number of characters == 3.
+
+  Returns:
+  --------
+  rot : 3x3 ndarray
+        The rotation matrix
+
+  See Also:
+  ---------
+  .rotx : rotation around the cs' x-axis
+  .roty : rotation around the cs' y-axis
+  .rotz : rotation around the cs' z-axis
+  .ctform : transport a set of points via a rotation and translation
+  .ctform_mat : gives the transformation matrix with which points are rotated
+  '''
+
+  # create rotation matrix
+  rotmat = np.eye(3)
+  for iaxis in range(len(order_rotations) - 1, -1, -1):
+    if order_rotations[iaxis] == 'x':
+      rotmat = np.dot(rotx(angles_xyz[0]), rotmat)
+
+    elif order_rotations[iaxis] == 'y':
+      rotmat = np.dot(roty(angles_xyz[1]), rotmat)
+
+    elif order_rotations[iaxis] == 'z':
+      rotmat = np.dot(rotz(angles_xyz[2]), rotmat)
+
+    else:
+      raise ValueError('The given axis "{axis}" is not valid'.format(axis=order_rotations[iaxis]))
+
+  return rotmat
+
+
 def rot2D(xs, ys, angle):
   """
   do a 2D rotation. Angle in RADIANS
