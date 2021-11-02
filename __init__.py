@@ -278,21 +278,84 @@ def check_types_in_array_like(array_like):
   return types
 
 
-def color_vector(nof_points, base_color, os=0.25):
+def _color_vector_simple(nof_points, start_color, end_color):
   """
-  determine a color vector from dark to light around a center color
+  create a color vector between two colors
   """
-  base_color = np.array(to_rgb(base_color))
+  # convert to vectors
+  start_color = np.array(to_rgb(start_color))
+  end_color = np.array(to_rgb(end_color))
 
-  start_color = np.fmax(0, base_color - base_color.max() + os)
-  end_color = np.fmin(1., base_color - base_color.min() + 1 - os)
-  # make base vector
-  icenter = np.int((nof_points + 0.5)//2)
+  r = np.linspace(start_color[0], end_color[0], nof_points)
+  g = np.linspace(start_color[1], end_color[1], nof_points)
+  b = np.linspace(start_color[2], end_color[2], nof_points)
 
-  cvec = np.zeros((nof_points, 3), dtype=float)
-  for iax in range(3):
-    cvec[:icenter, iax] = np.linspace(start_color[iax], base_color[iax], icenter, endpoint=False)
-    cvec[icenter:, iax] = np.linspace(base_color[iax], end_color[iax], nof_points - icenter)
+  cvec = np.vstack((r, g, b)).T
+
+  return cvec
+
+
+def color_vector(nof_points, c1, c2, cints=None, icints='equal'):
+  """
+  define a color vector with a via in the center somewhere
+  """
+  # handle corner case: simple straight color vector
+  if cints is None:
+    return _color_vector_simple(nof_points, c1, c2)
+
+  # process some shortcuts for the intermediate colors
+  if isinstance(cints, str):
+    cints_list = [np.array(to_rgb(cints))]
+  elif isinstance(cints, (tuple, list)):
+    # check the elements
+    if np.isscalar(cints[0]):
+      if isinstance(cints[0], str):
+        cints_list = []
+        for cint in cints:
+          cints_list.append(np.array(to_rgb(cint)))
+      else:  # it is a single value which means cints is [r, g, b] format
+        cints_list = [cints]
+    else:
+      cints_list = [to_rgb(cint) for cint in cints]
+
+  nof_ints = len(cints_list)
+  cs = [to_rgb(c1)] + cints_list + [to_rgb(c2)]
+  nof_cs = len(cs)
+
+  # handle the positions of the elements
+  if icints == 'equal':
+    spacing = nof_points/(nof_ints+1)
+    ics = np.linspace(0, nof_points, nof_cs)
+
+  # process the indices of the intermediates
+  elif isinstance(icints, (tuple, list, np.ndarray)):
+    ics = [0]
+    for iint in range(nof_ints):
+      if icints[iint] < 1:
+        ics.append(nof_points*icints[iint])
+      else:
+        ics.append(icints[iint])
+    ics.append(nof_points - 1)
+
+  # make them all integers
+  ics = [np.int_(-0.5 + ic) for ic in ics]
+
+  # paste all parts together
+  cvec = np.nan*np.ones((nof_points, 3), dtype=np.float_)
+
+  # loop all parts using *color_vector*
+  for ipart in range(0, nof_cs-1):
+    nof_points_part = ics[ipart+1] - ics[ipart]
+    cvec_part = color_vector(nof_points_part+1, cs[ipart], cs[ipart+1])
+
+    # note the indices
+    ifrom = ics[ipart]
+    ito = ics[ipart+1]  # this is NOT included!!
+    # last color is excluded, will the the first of the next section
+    cvec[ifrom:ito, :] = cvec_part[:-1, :]
+
+  # add the final color
+  cvec[-1, :] = cs[-1]
 
   return cvec
 
