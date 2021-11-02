@@ -9,6 +9,7 @@ from tkinter import Tk, filedialog
 import matplotlib.pyplot as plt
 import os
 from scipy.interpolate import interp1d
+from scipy.misc import factorial
 import numexpr as ne
 import re
 from copy import deepcopy
@@ -37,6 +38,56 @@ radius_earth = r_earth
 d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
+
+
+def nof_bits_needed(count):
+  """
+  calculate how many bits are needed to encode a list of *value* items
+  """
+  return (np.ceil(np.log2(count)) + 0.5).astype(int)
+
+
+def show_object_property_values(obj):
+  """
+  show the properties with values of an object
+  """
+  props = dir(obj)
+  max_prop_chars = max([len(prop) for prop in props])
+  hline = markerline('=', text=" OBJECT CONTENT ", doprint=True)
+  max_line_chars = len(hline)
+  print_in_columns(['attribute', 'value'], sep=' | ',
+                   colwidths=np.array([max_prop_chars, max_line_chars - max_prop_chars]))
+  # for prop in props:
+  #   value = getattr(obj, prop)
+  #   print_in_columns([prop, value], sep=' | ')
+
+  markerline('=', text=' END ', doprint=True)
+
+
+def unique_nonint(values, precision=None):
+  """
+  give the unique numbers upto a certain precision
+  """
+  # make into an array
+  values = arrayify(values)
+
+  # set precision
+  if precision is None:
+    precision = np.spacing(values.min())
+
+  # pick unique values via up/down method
+  outvals = np.unique(np.round(values/precision))*precision
+
+  return outvals
+
+
+def xovery(x, y):
+  """
+  combinatorial (x;y)
+  """
+  result = factorial(x)/(factorial(x-y)*factorial(y))
+
+  return result
 
 
 def nanplot(*_args, **kwargs):
@@ -1777,6 +1828,28 @@ def datarange(vals):
 
   mini, maxi = bracket(vals)
   return maxi - mini
+
+
+def signal_gain(coefs, fs, scale='lin', freqs=0):
+  """
+  calcluate the signal gain for a specific set of frequencies
+  """
+  nof_freqs = freqs.size
+  nof_taps = coefs.size
+
+  tvec = np.r_[0:nof_taps]/fs
+
+  gains = np.empty((nof_freqs, nof_taps), dtype=np.complex_)
+  for ifreq in range(nof_freqs):
+    gains[ifreq] = ((1/nof_taps)*np.abs(np.sum(coefs)).T
+                    *np.exp(-2j*np.pi*freqs[ifreq]*tvec))
+
+  if scale == 'db':
+    gains = aux.db(gains)
+  elif scale == 'logmod':
+    gains = aux.logmod(gains)
+
+  return gains
 
 
 def filter_gains(coefs, axis=-1, scale='db'):
