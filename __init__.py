@@ -629,7 +629,7 @@ def calc_frequencies(nof_taps, fs, center_zero=True):
   return freqs
 
 
-def spectrum(signal, fs=1., nof_taps=None, scaling='default', center_zero=True, full=True,
+def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=True,
              dB=True, Plot=True, **plot_kwargs):
   """
   get the spectrum of a signal
@@ -640,18 +640,21 @@ def spectrum(signal, fs=1., nof_taps=None, scaling='default', center_zero=True, 
 
   freqs = calc_frequencies(nof_taps, fs=fs, center_zero=center_zero)
 
-  spect = np.fft.fft(signal, n=nof_taps)
+  spect = np.abs(np.fft.fft(signal, n=nof_taps))
   if center_zero:
     spect = fftshift(spect)
 
-  if scaling == 'default':
-    sf = 1.
-  elif scaling == 'per_sample':
-    sf = nof_taps
-  elif scaling == 'normalize':
-    sf = np.abs(spect).max()
+  if isinstance(scaling, str):
+    if scaling == 'default':
+      sf = 1.
+    elif scaling == 'per_sample':
+      sf = nof_taps
+    elif scaling == 'normalize':
+      sf = np.abs(spect).max()
+    else:
+      raise NotImplementedError("The value for *scaling={}* is not implemented".format(scaling))
   else:
-    raise NotImplementedError("The value for *scaling={}* is not implemented".format(scaling))
+    sf = np.float_(scaling)
 
   spect /= sf
 
@@ -661,7 +664,7 @@ def spectrum(signal, fs=1., nof_taps=None, scaling='default', center_zero=True, 
     spect = spect[:nof_samples//2]
 
   if dB:
-    spect = db(spect)
+    spect = logmod(spect)
 
   if Plot:
     # plot the stuff
