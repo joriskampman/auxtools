@@ -2093,12 +2093,18 @@ def tighten(fig=None, orientation='landscape', forward=True):
     fig = plt.gcf()
 
   if orientation == 'landscape':
-    top = 0.927
-    bottom = 0.063
-    left = 0.054
-    right = 0.987
+    top = 0.941
+    bottom = 0.093
+    left = 0.074
+    right = 0.978
     hspace = 0.348
     wspace = 0.297
+    # top = 0.927
+    # bottom = 0.063
+    # left = 0.054
+    # right = 0.987
+    # hspace = 0.348
+    # wspace = 0.297
   elif orientation == 'portrait':
     left = 0.084
     right = 0.973
