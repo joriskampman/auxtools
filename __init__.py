@@ -3228,3 +3228,378 @@ def print_in_columns(strlist, maxlen=None, sep='', colwidths=None, print_=True):
 
   return lines
 
+
+def pixels_under_line(abcvec, xvec, yvec, mode='ax+by=c', upscale_factor=4):
+  """
+  find all the pixels under a line
+  """
+  dx = np.mean(np.diff(xvec))
+  dy = np.mean(np.diff(yvec))
+
+  upscale_factor = arrayify(upscale_factor)
+  # correct for single us factor value
+  if upscale_factor.size == 1:
+    upscale_factor = upscale_factor*np.ones((2,), dtype=np.int_)
+
+  # normalize resolution
+  xveci = xvec/dx
+  yveci = yvec/dy
+
+  # make vector 1:x (remove negative values)
+  xvecn = xveci - np.min(xveci)
+  yvecn = yveci - np.min(yveci)
+
+  # upscale to allow overlap and fill the line
+  xvecn = np.r_[xvecn[0]:xvecn[-1]:1/upscale_factor[0]]
+  yvecn = np.r_[yvecn[0]:yvecn[-1]:1/upscale_factor[1]]
+
+  # convert mode to 'ax+by=c'
+  if mode == 'y=ax+b':
+    a = abcvec[0]
+    b = -1
+    c = -abcvec[1]
+
+  elif mode == 'x=ay+b':
+    a = 1
+    b = -abcvec[0]
+    c = abcvec[1]
+
+  elif mode == 'ax+by+c':
+    a = abcvec[0]
+    b = abcvec[1]
+    c = abcvec[2]
+  else:
+    raise ValueError("The chosen *mode* ({}) is not valid".format(mode))
+
+  # modify abc according to scaling done before
+  a = a*dx
+  b = b*dy
+  c = c + a + b - a*xveci.min() - b*yveci.min()
+
+  size_grid = (yvec.size, xvec.size)
+  # check all x positions and find corresponding y positions
+  xfnd = (-b*yvecn + c)/a
+  xfndr = np.int_(xfnd + 0.5)
+  yfnd = (-a*xvecn + c)/b
+  yfndr = np.int_(yfnd + 0.5)
+  xvecnr = np.int_(xvecn + 0.5)
+  yvecnr = np.int_(yvecn + 0.5)
+
+  Ivalid_y = np.argwhere([elm in yvecnr for elm in yfndr]).ravel()
+  Ipix_y = np.ravel_multi_index((yfndr[Ivalid_y], xvecnr[Ivalid_y]), size_grid)
+
+  # Check all y positions and find corresponding x positions
+  Ivalid_x = np.argwhere([elm in xvecnr for elm in xfndr]).ravel()
+  Ipix_x = np.ravel_multi_index((yvecnr[Ivalid_x], xfndr[Ivalid_x]), size_grid)
+
+  # output
+  Ipix = np.union1d(Ipix_x, Ipix_y)
+
+  return Ipix
+
+
+def _axplusbyisc_to_yisaxplusb(coefs):
+  """
+  convert ax+by=c to y=ax+b
+  """
+  a_in, b_in, c_in = coefs
+
+  a_out = -a_in/b_in
+  b_out = c_in/b_in
+
+  return a_out, b_out
+
+
+def _axplusbyisc_to_xisayplusb(coefs):
+  """
+  convert ax+by=c to x=ay+b
+  """
+  a_in, b_in, c_in = coefs
+
+  a_out = -b_in/a_in
+  b_out = c_in/a_in
+
+  return a_out, b_out
+
+
+def _yisaxplusb_to_axplusbyisc(coefs):
+  """
+  convert y=ax+b to ax+by=c
+  """
+  a_in, b_in = coefs
+  return -a_in, 1., b_in
+
+
+def _xisayplusb_to_axplusbyisc(coefs):
+  """
+  convert x=ay+b to ax+by=c
+  """
+  a_in, b_in = coefs
+  return 1., -a_in, b_in
+
+
+def _yisaxplusb_to_xisayplusb(coefs):
+  """
+  convert y=ax+b to x=ax+b
+  """
+  a_in, b_in = coefs
+
+  return 1./a_in, -b_in/a_in
+
+
+def _xisayplusb_to_yisaxplusb(coefs):
+  """
+  convert x=ay+b to y=ax+b
+  """
+  a_in, b_in = coefs
+  return 1./a_in, -b_in/a_in
+
+
+def convert_line_coefficients(coefs, fmt_in, fmt_out='ax+by=c'):
+  """
+  convert line formats
+  """
+  # corner case: input equal to output format
+  coefs = [np.float_(coef) for coef in coefs]
+  if fmt_in == fmt_out:
+    return coefs
+
+  function_table = {'ax+by=c': {'y=ax+b': _axplusbyisc_to_yisaxplusb,
+                                'x=ay+b': _axplusbyisc_to_xisayplusb},
+                    'y=ax+b': {'ax+by=c': _yisaxplusb_to_axplusbyisc,
+                               'x=ay+b': _yisaxplusb_to_xisayplusb},
+                    'x=ay+b': {'ax+by=c': _xisayplusb_to_axplusbyisc,
+                               'y=ax+b': _xisayplusb_to_yisaxplusb}}
+  # select function
+  func = function_table[fmt_in][fmt_out]
+
+  # get the coefficients
+  coefs = func(coefs)
+
+  return coefs
+
+
+def check_parallel_lines(line1, line2, fmt1='ax+by=c', fmt2='ax+by=c'):
+  """
+  check if two lines are parallel
+  """
+  # convert to ax+by=c
+  line1_ = convert_line_coefficients(line1, fmt_in=fmt1, fmt_out='ax+by=c')
+  line2_ = convert_line_coefficients(line2, fmt_in=fmt2, fmt_out='ax+by=c')
+
+  if line1_[0] == line2_[0] and line1_[1] == line2_[1]:
+    return True
+  else:
+    return False
+
+
+def intersection_infinite_lines(line1, line2, fmt1='ax+by=c', fmt2='ax+by=c', no_int_value=None):
+  """
+  calculate the intersect point of two lines
+  """
+  # convert to ax+by=c formats
+
+  a1, b1, c1 = convert_line_coefficients(line1, fmt1)
+  a2, b2, c2 = convert_line_coefficients(line2, fmt2)
+
+  # corner case: parallel lines
+  if check_parallel_lines(line1, line2, fmt1=fmt1, fmt2=fmt2):
+    return no_int_value
+
+  # is horizontal line
+  if np.isclose(a1, 0.) and np.isclose(b1, 1.):
+    y_int = c1
+  elif np.isclose(a2, 0.) and np.isclose(b2, 1.):
+    y_int = c2
+  else:
+    y_int = (c2/a2 - c1/a1)/(b2/a2 - b1/a1)
+
+  # is vertical line
+  if np.isclose(a1, 1.) and np.isclose(b1, 0.):
+    x_int = c1
+  elif np.isclose(a2, 1.) and np.isclose(b2, 0.):
+    x_int = c2
+  else:
+    x_int = (c2/b2 - c1/b1)/(a2/b2 - a1/b1)
+
+  return x_int, y_int
+
+
+def intersection_finite_lines(p1, p2, q1, q2, no_int_value=None):
+  """
+  calculate the intersection point between two finite lines (or line sections) if any
+  """
+  # calculate the brackets for p and q regarding x and y positions
+  px = bracket(np.array([p1[0], p2[0]]))
+  qx = bracket(np.array([q1[0], q2[0]]))
+  py = bracket(np.array([p1[1], p2[1]]))
+  qy = bracket(np.array([q1[1], q2[1]]))
+
+  # check where/if the infinite lines have an intersection
+  linep = line_coefs_from_points(*p1, *p2)
+  lineq = line_coefs_from_points(*q1, *q2)
+
+  s_int = no_int_value
+  s_int_inf = intersection_infinite_lines(linep, lineq, no_int_value=None)
+  if s_int_inf is not None:
+    # check if s_int_inf is between the end points of BOTH lines
+    is_valid = px[0] <= s_int_inf[0] <= px[1]
+    is_valid *= py[0] <= s_int_inf[1] <= py[1]
+    is_valid *= qx[0] <= s_int_inf[0] <= qx[1]
+    is_valid *= qy[0] <= s_int_inf[1] <= qy[1]
+    if is_valid:
+      s_int = s_int_inf
+
+  return s_int
+
+
+def intersection_finite_and_infinite_lines(line, p1, p2, no_int_value=None):
+  """
+  calculate the intersection of a finite and an infinite line
+  """
+  # calculate the brackets for p and q regarding x and y positions
+  px = bracket(np.array([p1[0], p2[0]]))
+  py = bracket(np.array([p1[1], p2[1]]))
+
+  # check where/if the infinite lines have an intersection
+  linep = line_coefs_from_points(*p1, *p2)
+
+  s_int = no_int_value
+  s_int_inf = intersection_infinite_lines(linep, line, no_int_value=None)
+  if s_int_inf is not None:
+    # check if s_int_inf is between the end points of BOTH lines
+    is_valid = px[0] <= s_int_inf[0] <= px[1]
+    is_valid *= py[0] <= s_int_inf[1] <= py[1]
+    if is_valid:
+      s_int = s_int_inf
+
+  return s_int
+
+
+def distance_point_to_line(xpt, ypt, line, linefmt='ax+by=c'):
+  """
+  calculate the distance between a point and a line
+  """
+  a_line, b_line, c_line = convert_line_coefficients(line, linefmt)
+
+  # c-coefficient indicates the distance
+  c_pt = a_line*xpt + b_line*ypt
+
+  # this is the distance (perpendicular)
+  delta_c = np.abs(c_pt - c_line)
+
+  return delta_c
+
+
+def line_coefs_from_points(x1, y1, x2, y2, fmt='ax+by=c'):
+  """
+  get the coefficient for a line from two points
+  """
+  x1 = np.float_(x1)
+  x2 = np.float_(x2)
+  y1 = np.float_(y1)
+  y2 = np.float_(y2)
+
+  dx = x1 - x2
+  dy = y1 - y2
+
+  if np.isclose(dx, 0.):
+    # is vertical line
+    a = 1.
+    b = 0.
+    c = np.mean([x1, x2])
+  elif np.isclose(dy, 0.):
+    a = 0.
+    b = 1.
+    c = np.mean([y1, y2])
+  else:
+    slope = dy/dx
+    offset = np.mean([y1 - slope*x1,
+                      y2 - slope*x2])
+    a = -slope
+    b = 1.
+    c = offset
+
+  # output format
+  if fmt == 'ax+by=c':
+    return a, b, c
+  elif fmt == 'y=ax+b':
+    a_ = -a/b
+    b_ = c/b
+    return a_, b_
+  elif fmt == 'x=ay+b':
+    a_ = -b/a
+    b_ = c/a
+    return a_, b_
+  else:
+    raise ValueError("The value given for *fmt={}* is not valid.".format(fmt))
+
+
+def is_point_on_line(lp1, lp2, pt, infinite_line=True):
+  """
+  check if a point is on a line section
+  """
+  is_on_line = False
+  line = line_coefs_from_points(*lp1, *lp2)
+
+  dist = distance_point_to_line(*pt, line)
+
+  if np.isclose(dist, 0.):
+    if infinite_line:
+      is_on_line = True
+    else:
+      # check if it is between the lp1 and lp2
+      if np.fmin(lp1[0], lp2[0]) <= pt[0] <= np.fmax(lp1[0], lp2[0]):
+        print("horizontal coordinate OK")
+        if np.fmin(lp1[1], lp2[1]) <= pt[1] <= np.fmax(lp1[1], lp2[1]):
+          print("vertical coordinate OK")
+          is_on_line = True
+
+  return is_on_line
+
+
+def intersections_line_and_box(bl, tr, line, line_fmt='ax+by=c'):
+  """
+  calculate the intersection points for a line with a rectangular box
+  """
+
+  # handle inputs
+  xbl, ybl = bl
+  xtr, ytr = tr
+
+  line_ = convert_line_coefficients(line, line_fmt, 'ax+by=c')
+
+  # make 4 lines for the box
+  linecoefs = {'left': [1., 0., xbl],
+               'bottom': [0., 1., ybl],
+               'top': [0., 1., ytr],
+               'right': [1., 0., xtr]}
+
+  sectionedges = {'left': [(xbl, ybl), (xbl, ytr)],
+                  'bottom': [(xbl, ybl), (ytr, ybl)],
+                  'top': [(xbl, ytr), (xtr, ytr)],
+                  'right': [(xtr, ybl), (xtr, ytr)]}
+  # make the output dictionary
+  is_inside = False
+  outdict = dict.fromkeys(linecoefs.keys())
+  for name, coefs in linecoefs.items():
+    p_int = intersection_finite_and_infinite_lines(line_, *sectionedges[name])
+    outdict[name] = p_int
+
+    if p_int is not None:
+      is_inside = True
+
+  outdict['is_inside'] = is_inside
+
+  return outdict
+
+
+def is_line_from_points_in_box(bl, tr, pt1, pt2):
+  """
+  calculate if a line through 2 points is inside a box
+  """
+  line = line_coefs_from_points(*pt1, *pt2)
+
+  intdict = intersections_line_and_box(bl, tr, line)
+
+  return intdict['is_inside']
