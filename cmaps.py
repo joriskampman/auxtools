@@ -452,7 +452,7 @@ def traffic_light(nof_steps=256, istep=None, invert=False, negative=False, inter
                           name='traffic_light')
 
 
-def binary(nof_steps=2, istep=None, invert=False, negative=False, interpolation='nearest'):
+def binary(nof_steps=256, istep=None, invert=False, negative=False, interpolation='linear'):
   '''
   Colormap for displaying true or false images. consists of two colors and no interpolation done
 

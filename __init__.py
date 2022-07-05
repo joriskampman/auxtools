@@ -1,6 +1,9 @@
-'''
-jktools module
-'''
+"""
+auxtools module
+
+this module contains all kinds of helpfull scripts that are stripped of any relations with projects
+or other thales-based links
+"""
 
 # import files
 import numpy as np
@@ -24,8 +27,10 @@ import datetime as dt
 import pdb  # noqa
 from warnings import warn
 from matplotlib.colors import to_rgb
-
+from PyQt5.QtWidgets import QApplication
+from matplotlib.patches import Ellipse
 import glob
+import pandas as pd
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -38,6 +43,506 @@ radius_earth = r_earth
 d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
+
+confidence_table = pd.Series(
+    index=[0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 0.95,
+           0.975, 0.99, 0.995],
+    data=[0.010, 0.020, 0.051, 0.103, 0.211, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan,
+          np.nan, np.nan, np.nan, 4.605, 5.991, 7.378, 9.210, 10.597])
+
+# interpolate the nan's
+confidence_table.interpolate(method='cubic', inplace=True)
+
+
+class IncorrectNumberOfFilesFound(Exception):
+  pass
+
+
+def find_outliers(data, sf_iqr=1.5, axis=None):
+  """
+  find the outliers according to the 1.5 iqr method
+  """
+  if data.ndim > 1:
+    if axis is None:
+      output = find_outliers(data.ravel(), sf_iqr=sf_iqr, axis=None)
+      output = np.reshape(output, data.shape)
+      return output
+    else:
+      # move the iteration axis to the first index
+      datamod = np.moveaxis(data, axis, 0)
+      datamod2 = datamod.reshape(datamod.shape[0], np.prod(datamod.shape[1:])).T
+      # datamod2 = np.moveaxis(datamod, 0, 1)
+      resultveclist = []
+      for datavec in datamod2:
+        resultvec = find_outliers(datavec, sf_iqr=sf_iqr, axis=0)
+        resultveclist.append(resultvec)
+
+      # reshape
+      results = np.array(resultveclist)
+
+      results = np.moveaxis(results.T, 0, axis)
+
+      return results
+
+  if np.iscomplex(data).sum() >= 1:
+    data_ = np.abs(data)
+  else:
+    data_ = data.copy()
+
+  q1 = np.percentile(data_, 25)
+  q3 = np.percentile(data_, 75)
+  iqr = q3 - q1
+
+  # determine low and high thresholds
+  thres_low = q1 - sf_iqr*iqr
+  thres_high = q3 + sf_iqr*iqr
+
+  # test against thresholds
+  tf_inliers = (data_ >= thres_low)*(data_ <= thres_high)
+  tf_outliers = ~tf_inliers
+
+  return tf_outliers
+
+
+def dec2hex(decvals, nof_bytes=None):
+  """
+  convert a decimal value tot hexadecimal representation also for a array-like
+  """
+  decvals_arr = arrayify(decvals)
+
+  shape = decvals_arr.shape
+
+  decvals_vec = decvals_arr.ravel()
+
+  # make hexadecimal values
+  hexvals_list = [hex(decval) for decval in decvals_vec]
+
+  # make them equally long
+  nof_bytes_min = max([len(hexval) - 2 for hexval in hexvals_list])
+
+  if nof_bytes is None:
+    nof_bytes = nof_bytes_min
+  else:
+    nof_bytes = max(nof_bytes_min, nof_bytes)
+
+  nof_zeros_to_pad = np.array([nof_bytes*2 - (len(hexval) - 2) for hexval in hexvals_list])
+
+  hexvals_pad_list = ['0x' + n0*'0' + hexval[2:] for (n0, hexval)
+                      in zip(nof_zeros_to_pad, hexvals_list)]
+
+  hexvals = np.array(hexvals_pad_list).reshape(shape)
+
+  if isinstance(decvals, list):
+    hexvals = listify(hexvals)
+  elif isinstance(decvals, tuple):
+    hexvals = tuplify(hexvals)
+  elif np.isscalar(decvals):
+    hexvals = hexvals[0]
+
+  return hexvals
+
+
+def plot_grid(data_cplx, *args, ax=None, **kwargs):
+  """
+  plot a grid from a 2D set of complex data
+  """
+  xmeas = np.real(data_cplx)
+  ymeas = np.imag(data_cplx)
+
+  nr, nc = data_cplx.shape
+
+  # plot a grid of lines
+  if ax is None:
+    ax = plt.gca()
+
+  for irow in range(nr):
+    # plot horizontal line
+    ax.plot(xmeas[irow, :], ymeas[irow, :], *args, **kwargs)
+  for icol in range(63):
+    # plot vertical line
+    ax.plot(xmeas[:, icol], ymeas[:, icol], *args, **kwargs)
+
+  plt.show(block=False)
+
+  return ax
+
+
+def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=None,
+                   ha='right', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
+                   fontweight='normal', fontsize=8, fontname='monospace', fontcolor='k'):
+  """
+  add text inset
+  """
+  # get the positions
+  xpos = x
+  ypos = y
+  if xpos is None:
+    if loc.lower().find("right") > -1:
+      xpos = 0.98
+    elif loc.lower().find("left") > -1:
+      xpos = 0.02
+
+  if ypos is None:
+    if loc.lower().find("upper") or loc.lower().find("top"):
+      ypos = 0.98
+    elif loc.lower().find("lower") or loc.lower().find("bottom"):
+      ypos = 0.02
+
+  # get axees
+  if ax is None:
+    ax = plt.gca()
+
+  # info is on the right side, calculate the offset
+  if ha == 'right' and left_align_lines:
+    # determine the size of the box
+    nof_chars_right_box = max([len(str_) for str_ in text_inset_strs_list])
+    text_inset_strs_list = ['{{:<{:d}s}}'.format(nof_chars_right_box).format(str_) for str_ in
+                            text_inset_strs_list]
+
+  # glue the lines
+  text_inset_text = '\n'.join(text_inset_strs_list)
+
+  # add the text to the axes
+  ax.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
+          fontname=fontname, ha=ha, va=va, bbox=dict(boxstyle="Round, pad=0.2", ec='k',
+                                                     fc=boxcolor),
+          transform=ax.transAxes, color=fontcolor)
+
+  plt.draw()
+
+  return ax
+
+
+def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill=False,
+             conf=0.67, remove_outliers=True, **kwargs):
+  """
+  plot the covariance matrix
+  sf = 5.99 corresponds to the 95% confidence interval
+  """
+  cov_to_calc = False
+  if isinstance(data_or_cov, np.ndarray) and data_or_cov.shape == (2, 2):
+    cov = data_or_cov
+  elif isinstance(data_or_cov, (list, tuple, np.ndarray)):
+    cov_to_calc = True
+    if len(data_or_cov) == 2:
+      data = data_or_cov
+    else:  # assume complex numbers
+      data = [np.real(data_or_cov), np.imag(data_or_cov)]
+  else:
+    raise ValueError("The value for argument *data_or_cov* is not valid. Please check!")
+
+  # check if the covariance is still to be plotted
+  if cov_to_calc:
+    if remove_outliers:
+      tf_valid_i = ~find_outliers(data[0])
+      tf_valid_q = ~find_outliers(data[1])
+      tf_valid = tf_valid_i*tf_valid_q
+      data[0] = data[0][tf_valid]
+      data[1] = data[1][tf_valid]
+    cov = np.cov(data)
+    if center is None:
+      center = tuplify(np.mean(data, axis=1))
+
+  if center is None:
+    center = (0., 0.)
+
+  # parametric representation
+  if ax is None:
+    ax = plt.gca()
+
+  t = np.linspace(0, 2*np.pi, nof_pts, endpoint=True)
+  eigvals, eigvecs = np.linalg.eig(cov)
+
+  # create non-skewed ellipse
+  xy_unit_circle = np.array([np.cos(t), np.sin(t)])
+
+  # make scale factor
+  sf = np.interp(conf, confidence_table.index, confidence_table.values)
+  xy_straight_ellipse = np.sqrt(sf*eigvals).reshape(2, 1)*xy_unit_circle
+  xy_ellipse = eigvecs@xy_straight_ellipse  # noqa
+  xt_, yt_ = xy_ellipse
+
+  # add the center point
+  xt = xt_ + center[0]
+  yt = yt_ + center[1]
+  ax.plot(xt, yt, plotspec, **kwargs)
+
+  if fill:
+    ax.fill(xt, yt, plotspec, **kwargs)
+  plt.show(block=False)
+  plt.draw()
+
+  return ax, cov
+
+
+def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d}',
+               strfmt='{:s}', maxlen=None, **short_kws):
+  """
+  glue a list of elements to a string
+  """
+  types_conv_dict = {str: strfmt,
+                     int: intfmt,
+                     np.int64: intfmt,
+                     float: floatfmt}
+
+  # check the three types
+  fmtlist = list2glue.copy()
+  for key in types_conv_dict.keys():
+    fmtlist = [types_conv_dict[key] if isinstance(elm, key) else elm for elm in fmtlist]
+
+  output_parts = [fmtstr.format(elm) for (fmtstr, elm) in zip(fmtlist, list2glue)]
+  output_string = pfx + sep.join(output_parts) + sfx
+
+  if maxlen is not None:
+    output_string = short_string(output_string, maxlen, **short_kws)
+
+  return output_string
+
+
+def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", floatfmt='{:f}',
+               intfmt='{:d}', strfmt='{:s}', maxlen=None, **short_kws):
+  """
+  print a dict
+  """
+  types_conv_dict = {str: strfmt,
+                     int: intfmt,
+                     np.int64: intfmt,
+                     float: floatfmt}
+
+  # check the three types
+  nof_elms = len(dict2glue)
+  output_list = []
+  for key, value in dict2glue.items():
+    if isinstance(value, (list, tuple, np.ndarray)):
+      value = listify(value)
+      if maxlen is not None:
+        maxlen_list = maxlen - len(key) - len(sep)
+      else:
+        maxlen_list = None
+      output_str_ = print_list(value, pfx='{', sfx='}', floatfmt=floatfmt, intfmt=intfmt,
+                               strfmt=strfmt, maxlen=maxlen_list, **short_kws)
+    else:
+      if type(value) in types_conv_dict.keys():
+        fmt = types_conv_dict[type(value)]
+      else:
+        fmt = '{}'
+      output_str_ = fmt.format(value)
+
+    # combine to full output string
+    output_string = pfx + key + sep + output_str_ + sfx
+
+    if maxlen is not None:
+      output_string = short_string(output_string, maxlen, **short_kws)
+
+    output_list.append(output_string)
+
+  if glue_list:
+    output = glue.join(output_list)
+  else:
+    output = output_list
+
+  return output
+
+
+def RENAME_FILES_AND_FOLDERS_NOT_FINISHED(basedir, str2replace, replacement, recursive=True,
+                                          dryrun=True, verbose=True):
+  """
+  rename the files and folders encountered
+  """
+  if not os.path.exists(basedir):
+    raise FileNotFoundError("The basedir ({:s}) is not found!".format(basedir))
+
+  contents_org = os.listdir(basedir)
+  contents_fnd = [name for name in contents_org if str2replace in name]
+  contents_new = []
+  contents_old = []
+  dirs = []
+  results = []
+  for name in contents_fnd:
+    new_name = name.replace(str2replace, replacement)
+    if verbose:
+      print("{:s} --> {:s}".format(name, new_name))
+    contents_new.append(new_name)
+    contents_old.append(name)
+    dirs.append(basedir)
+    if recursive and os.path.isdir(os.path.join(basedir, name)):
+      (contents_old_,
+       contents_new_,
+       dirs_,
+       results_) = rename_files_and_folders(os.path.join(basedir, name), str2replace, replacement,
+                                            recursive=recursive, dryrun=dryrun, verbose=verbose)
+      contents_old += contents_old_
+      contents_new += contents_new_
+      dirs += dirs_
+      results += results_
+
+  if dryrun:
+    print("Only a dry-run requested. Set *dryrun* to False to actually change files and folder")
+  else:
+    results = [os.rename(os.path.join(dirname, oldname), os.path.join(dirname, newname))
+               for dirname, oldname, newname in zip(dirs, contents_old, contents_new)]
+
+  return contents_old, contents_new, dirs, results
+
+
+def extract_value_from_strings(input2check, pattern2match, output_fcn=str,
+                               notfoundvalue=None):
+  """
+  extract values from a list of strings
+  """
+  list_of_strings = listify(input2check)
+  fmt = conv_fmt(pattern2match)
+
+  # do the search
+  search_results = [re.search(fmt, str_) for str_ in list_of_strings]
+
+  # get the strings
+  value_strings = [res.group() if res is not None else notfoundvalue for res in search_results]
+
+  # make the values
+  values = [output_fcn(valstr) if valstr is not None else notfoundvalue
+            for valstr in value_strings]
+
+  if np.isscalar(input2check):
+    output = values[0]
+  else:
+    output = values
+
+  return output
+
+
+def conv_fmt(pyfmt):
+  """
+  convert the python string formatting to re formatting
+  note that square brackets enclosing means optional
+  """
+  pyfmt = pyfmt.replace('+', '\\+')
+  py2re = {'*': '\S+',
+           '%c': '.',
+           '%nc': '.{n}',
+           '%d': '[-+]?\d+',
+           '%e': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '%E': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '%f': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '%g': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '$i': '[-+]?(0[xX][\dA-Fa-f]+|0[0-7]*|\d+)',
+           '%o': '[-+]?[0-7]+',
+           '%n': '[0-9_]*',
+           '%w': '[a-zA-z]*',
+           '%u': '\d+',
+           '%s': '\S+',
+           '%x': '[-+]?(0[xX])?[\dA-Fa-f]+',
+           '%X': '[-+]?(0[xX])?[\dA-Fa-f]+'}
+
+  # process possible square brackets ([...] becomes (...)?)
+
+  # modify the lookback and lookforward parts
+  # lookback part (everything before the first %[df...])
+  iprefix = pyfmt.find('%')
+  if iprefix > 0:
+    # check if there is an optional part (format [...]?)
+    if pyfmt[iprefix-2:iprefix] == ']?':
+      iprefix = pyfmt[:(iprefix-2)].find('[')
+    lookback_str = pyfmt[:iprefix]
+    lookback_str_fmt = '(?<=' + lookback_str + ')'
+    pyfmt = lookback_str_fmt + pyfmt[iprefix:]
+
+  # lookforward part
+  isuffix = pyfmt.rfind('%')+2
+  if isuffix < len(pyfmt):
+    # check if there is a [...]? part -> optional
+    if pyfmt[isuffix] == '[':
+      isuffix += pyfmt[isuffix:].find(']?') + 2
+    lookfw_str = pyfmt[isuffix:]
+    lookfw_str_fmt = '(?=' + lookfw_str + ')'
+    pyfmt = pyfmt[:isuffix] + lookfw_str_fmt
+
+  # initialize the regexp string
+  refmt = pyfmt
+  for key in py2re.keys():
+    refmt = refmt.replace(key, py2re[key])
+
+  return refmt
+
+
+def find_pattern(pattern, list_of_strings, nof_expected=None, nof_expected_mode='exact',
+                 squeeze=True):
+  """
+  find a (python) formatted file name in a directory
+  """
+
+  # convert the formatted file to the regexpr formatted file
+  pattern_regexp = conv_fmt(pattern)
+
+  # search all elements in the contents list
+  re_results_list = [re.search(pattern_regexp, fname) for fname in list_of_strings]
+
+  # get the strings that match
+  valid_filenames = [fname.string for fname in re_results_list if fname is not None]
+
+  # throw nof found in variable, necessary for possible post processing
+  nof_found = len(valid_filenames)
+
+  if nof_expected is None:
+    pass
+
+  elif isinstance(nof_expected, (int, np.int_, np.int)):
+    errstr = ("The expected number of found files is ({}), but only ({}) are found. "
+              .format(nof_expected, nof_found)
+              + "This is incompatible with *nof_expected_mode*=`{}`".format(nof_expected_mode))
+    if nof_found == nof_expected:
+      pass
+    elif nof_found > nof_expected:
+      if nof_expected_mode == 'min':
+        pass
+      elif nof_expected_mode in ('max', 'exact'):
+        raise IncorrectNumberOfFilesFound(errstr)
+    elif nof_found < nof_expected:
+      if nof_expected_mode == 'max':
+        pass
+      elif nof_expected_mode in ('min', 'exact'):
+        raise IncorrectNumberOfFilesFound(errstr)
+    else:
+      raise FileNotFoundError(errstr)
+
+  # check if I have to squeeze
+  if squeeze:
+    if nof_found == 1:
+      valid_filenames = valid_filenames[0]
+
+  # return the stuff
+  return valid_filenames
+
+
+def find_filename(filepattern, dirname, nof_expected=1, nof_expected_mode='exact',
+                  squeeze=True):
+  """
+  find a (python) formatted file name in a directory
+  """
+  # get the contents of the folder
+  contents = os.listdir(dirname)
+
+  found_strings = find_pattern(filepattern, contents, nof_expected=nof_expected,
+                               nof_expected_mode=nof_expected_mode, squeeze=squeeze)
+
+  return found_strings
+
+
+def pconv(dirname):
+  """
+  convert the path in windows format to linux
+  """
+  win2lin = {'s:': '/work',
+             'm:': '/home/dq968/'}
+
+  # replace all backslashes with forward slashes
+  dirname = dirname.replace('\\', os.sep)
+
+  for wkey, sub in win2lin.items():
+    dirname = dirname.replace(wkey, sub)
+    dirname = dirname.replace(wkey.upper(), sub)
+
+  return dirname
 
 
 def nof_bits_needed(count):
@@ -519,7 +1024,7 @@ def select_file(**options):
 
 
 def select_savefile(defaultextension=None, title=None, initialdir=None, initialfile=None,
-                    check_exists=True):
+                    filetypes=None):
   """
   select a file to save
 
@@ -544,10 +1049,17 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
   root = Tk()
   root.withdraw()
 
+  if filetypes is None:
+    filetypes = [("text files", "*.txt"),
+                 ("JPG files", "*.jpg"),
+                 ("PNG files", "*.png"),
+                 ("GIF files", "*.png"),
+                 ("All files", "*.*")]
+
   # while True:
   filename = filedialog.asksaveasfilename(defaultextension=defaultextension,
                                           initialdir=initialdir, title=title,
-                                          initialfile=initialfile)
+                                          initialfile=initialfile, filetypes=filetypes)
 
   # if check_exists:
   #   if os.path.exists(filename):
@@ -574,6 +1086,9 @@ def select_folder(**options):
   root.withdraw()
 
   dirname = filedialog.askdirectory(**options)
+
+  root.quit()
+  root.destroy()
 
   return dirname
 
@@ -846,8 +1361,10 @@ def print_struct_array(arr, varname='', prefix='| ', verbose=True,
 
   See Also:
   ---------
-  ._print_struct_array_compact : prints the array content with flag *verbose=False*
-  ._print_struct_array_full : prints the array content with flag *verbose=True*
+  ._print_struct_array_flat_full : prints the array content with flag *verbose=False*
+  ._print_struct_array_full : prints the array content with flag *verbose=False*
+  ._print_struct_array_flat_compact : prints the array content with flag *verbose=False*
+  ._print_struct_array_compact : prints the array content with flag *verbose=True*
   '''
 
   # print(varname, end='')
@@ -1416,7 +1933,7 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   '''
 
   def pressed_return(event):
-    master.destroy()
+    master.quit()
 
     return None
 
@@ -1440,13 +1957,13 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   for irow in np.arange(nof_rows):
 
     # create tkvars of the correct type
-    if isinstance(types[irow], (np.float_, float)):
+    if types[irow] in (np.float_, float):
       tkvar.append(tk.DoubleVar(master, value=defaults[irow]))
 
-    elif isinstance(types[irow], (np.int_, int)):
+    elif types[irow] in (np.int_, int):
       tkvar.append(tk.IntVar(master, value=defaults[irow]))
 
-    elif isinstance(types[irow], str):
+    elif types[irow] == str:
       tkvar.append(tk.StringVar(master, value=defaults[irow]))
 
     else:
@@ -1478,12 +1995,15 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
     return None
 
   if len(out) == 1:
-    return out[0]
+    returnval = out[0]
   else:
-    return out
+    returnval = out
+
+  master.destroy()
+  return returnval
 
 
-def rms(signal, axis=-1):
+def rms(signal, axis=None):
   '''
   Calculate the root-mean-squared value of a signal in time
 
@@ -1872,7 +2392,7 @@ def bracket(x):
   Author: Joris Kampman, Thales NL, 2017
   '''
   x = arrayify(x)
-  return x.min(), x.max()
+  return np.nanmin(x), np.nanmax(x)
 
 
 def datarange(vals):
@@ -1911,9 +2431,9 @@ def signal_gain(coefs, fs, scale='lin', freqs=0):
                     *np.exp(-2j*np.pi*freqs[ifreq]*tvec))
 
   if scale == 'db':
-    gains = aux.db(gains)
+    gains = db(gains)
   elif scale == 'logmod':
-    gains = aux.logmod(gains)
+    gains = logmod(gains)
 
   return gains
 
@@ -2070,119 +2590,6 @@ def save_animation(anim, filename, fps=30, metadata={'artist': 'Joris Kampman, 2
   return None
 
 
-def tighten(fig=None, orientation='landscape', forward=True):
-  '''
-  *tighten* is equivalent to numpy.tight_layout() but defined specifically for figures laid-out
-  as A-format landscape (via jktools.resize_figure() for instance). The subplots are placed
-  such that there is room for a suptitle, labels and plottitles.
-
-  keyword arguments:
-  ------------------
-  fig [handle] is the figure handle to tighten. In case fig=None, the current figure will be taken
-  forward [bool] set to True will (re)draw the figure immediately. set to False will hold drawing
-
-  *tighten* will return None
-
-  See also: jktools.resize_figure(),
-            matplotlib.pyplot.tight_layout()
-
-  Author: Joris Kampman, Thales NL, 2017
-  '''
-
-  if fig is None:
-    fig = plt.gcf()
-
-  if orientation == 'landscape':
-    top = 0.941
-    bottom = 0.093
-    left = 0.074
-    right = 0.978
-    hspace = 0.348
-    wspace = 0.297
-    # top = 0.927
-    # bottom = 0.063
-    # left = 0.054
-    # right = 0.987
-    # hspace = 0.348
-    # wspace = 0.297
-  elif orientation == 'portrait':
-    left = 0.084
-    right = 0.973
-    top = 0.939
-    bottom = 0.044
-    wspace = 0.105
-    hspace = 0.265
-
-  fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom, wspace=wspace, hspace=hspace)
-
-  if forward is True:
-    plt.draw()
-
-  return None
-
-
-def resize_figure(fig=None, size='amax', orientation='landscape', tight_layout=True):
-  '''
-  resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
-  the display on the screen.None
-
-  positional arguments:
-  ---------------------
-  <none>
-
-  keyword arguments:
-  ------------------
-  fig         [handle] figure handle. If None is given, the current figure handle will be taken
-  size        [None/list(float)] either None or a list of 2 elements containing the width and
-                                 height in inches. In case None is given (the default), the figure
-                                 is maximized to the screen while maintaining the a-format ratio of
-                                 sqrt(2) to 1
-  orientation [str] either 'portrait' or 'landscape', this value is only used in combination with
-                    size=None. Otherwise this value is don't care
-  tight_layout [bool] is boolean indicating to use the function 'jktools.tighten' to
-                      minimize whitespace around the axes while still preserving room for all
-                      possible titles. Works well when size=None
-
-  resize_figure returns None, but immediately updates the figure size via the function
-  fig.set_size_inches(..., forward=True)
-
-  '''
-  from tkinter import Tk
-
-  if fig is None:
-    fig = plt.gcf()
-
-  # if; maximize
-  if size.endswith("maximize"):
-    mng = plt.get_current_fig_manager()
-    mng.window.showMaximized()
-
-  # else: A paper dimensions (a/b=sqrt(2))
-  elif size.startswith('a'):
-    if size == 'amax':
-      root = Tk()
-      w0, h0 = paper_A_dimensions(0, units='inches', orientation=orientation)
-      hscreen = root.winfo_screenmmheight()/2.54  # go to inches
-      root.destroy()
-
-      h = hscreen
-      w = w0*(hscreen/h0)
-
-    else:
-      w, h = paper_A_dimensions(np.int(size[1:]), units='inches', orientation=orientation)
-
-    fig.set_size_inches(w, h, forward=True)
-
-  # else: witdth and height are given
-  else:
-    fig.set_size_inches(*size, forward=True)
-
-  if tight_layout:
-    tighten(fig, orientation=orientation)
-
-  return None
-
-
 def paper_A_dimensions(index, units="m", orientation='landscape'):
   """
   calculate the paper dimensions for A<x> paper sizes
@@ -2216,6 +2623,103 @@ def paper_A_dimensions(index, units="m", orientation='landscape'):
     raise ValueError("The value for *orientation* ({}) is not valid".format(orientation))
 
   return w, h
+
+
+def get_max_figure_size_inches():
+  """
+  get the maximum figure size of a figure
+  """
+  fig = plt.figure()
+  plt.get_current_fig_manager().window.showMaximized()
+  wfig, hfig = fig.get_size_inches()
+  plt.close(fig)
+
+  return wfig, hfig
+
+
+def get_max_a_size_for_display(fig=None, orientation='landscape', units='mm'):
+  """
+  get the maximum size with A-ratio that can be displayed
+  """
+  wfigmax, hfigmax = get_max_figure_size_inches()
+  wA0, hA0 = paper_A_dimensions(0, units=units, orientation=orientation)
+
+  # ratio for the conversion of max height to width
+  whratio = wA0/hA0
+
+  # Height can always be maximized, width follows from ratio
+  height = hfigmax
+  width = height*whratio
+
+  return width, height
+
+
+def move_figure_to_monitor(imon):
+  """
+  move the figure to a specified monitor
+  """
+  mng = plt.get_current_fig_manager()
+  mng.window.move()
+
+
+def resize_figure(fig=None, size='amax', sf=1., orientation='landscape'):
+  '''
+  resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
+  the display on the screen.None
+
+  positional arguments:
+  ---------------------
+  <none>
+
+  keyword arguments:
+  ------------------
+  fig         [handle] figure handle. If None is given, the current figure handle will be taken
+  size        [None/'maximize'/list(float)] either None or a list of 2 elements containing the
+                                 width and
+                                 height in inches. In case None is given (the default), the figure
+                                 is maximized to the screen while maintaining the a-format ratio of
+                                 sqrt(2) to 1
+  orientation [str] either 'portrait' or 'landscape', this value is only used in combination with
+                    size=None. Otherwise this value is don't care
+  tight_layout [bool] is boolean indicating to use the function 'jktools.tighten' to
+                      minimize whitespace around the axes while still preserving room for all
+                      possible titles. Works well when size=None
+
+  resize_figure returns None, but immediately updates the figure size via the function
+  fig.set_size_inches(..., forward=True)
+
+  '''
+  if fig is None:
+    fig = plt.gcf()
+
+  # set figure manager
+  mng = plt.get_current_fig_manager()
+
+  # reset to normal
+  mng.window.showNormal()
+
+  # if; maximize
+  if size.endswith("maximize"):
+    # first: maximize
+    mng.window.showMaximized()
+
+  # else: A paper dimensions (a/b=sqrt(2))
+  elif size.startswith('a'):
+    if size == 'amax':
+      # Height can always be maximized
+      width, height = get_max_a_size_for_display(fig=fig, units='inches', orientation=orientation)
+
+    else:
+      width, height = paper_A_dimensions(np.int(size[1:]), units='inches', orientation=orientation)
+
+    # use width and height to set the figure size
+    fig.set_size_inches(sf*width, sf*height, forward=True)
+
+  # else: witdth and height are given
+  else:
+    fig.set_size_inches(*size, forward=True)
+
+  return fig
 
 
 def abc(a, b, c):
@@ -2309,9 +2813,46 @@ def exp_fast(data):
   return ne.evaluate('exp(data)')
 
 
-def qplot(*args, ax="hold", **kwargs):
+def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
+          mark_endpoints=False, endpoints_as_text=False, endpoint_color='k', return_kid=False,
+          **kwargs):
   """
   a quicklook plot
+
+  positional arguments:
+  ----------------------
+  args : <see matplotlib.pyplot.plot>
+
+  keyword arguments:
+  ------------------
+  ax : [None | axes | 'hold'], default='hold'
+       The axes where to plot it. None will create a new axes, while 'hold' will use the existing
+       one. An axes instance will just plot in the given axes (this is the preferred way)
+  center : bool, default=False
+           Whether the create a plot centered around zero with equal width and height. Works shit
+           in case of outliers though
+  aspect : ['auto' | 'equal'], default='auto'
+           Sets the aspect ratio of the axes. See matplotlib.pyplot.set_aspect.
+  rot_deg : float, default=0.
+            The angle with which to rotate all points. By default there is no rotation, thus set
+            to 0. degrees. In case this is too slow, make a switch
+  mark_endpoints : bool, default=False
+                   mark the start and endpoint with a marker. The start is indicated by a black
+                   square withouth a face (so it circumvents the point itself), while the
+                   endpoint is a faceless black circle.
+  endpoints_as_text : bool, default=False
+                      Whether to replace the endpoint markers (square and circle) by the texts
+                      'start' and 'end', this might be beneficial in some cases
+  **kwargs : dictionary
+             keyword arguments to be given to the underlying matplotlib.pyplot.plot function
+             to which this function is a wrapper
+
+  returns:
+  --------
+  lobj : Line2D
+         The line object
+  ax : axes
+       The axes object containing the plots
   """
   # set kwargs if no display spec is given
   if isinstance(args[0], str):
@@ -2330,36 +2871,92 @@ def qplot(*args, ax="hold", **kwargs):
     if isinstance(ax, str) and ax.endswith("hold"):
       ax = plt.gca()
 
-  if 'rot' in kwargs.keys():
-    # check if y only is given or x and y
-    angle = kwargs.pop('rot')
-    if len(args) == 1:
-      args_ = ()
+  # set the aspect ratio ('auto' and 'equal' are accepted)
+  ax.set_aspect(aspect)
+
+  if len(args) == 1:
+    args_ = ()
+    if np.iscomplex(args[0]).sum() > 0:
+      xs = np.real(args[0])
+      ys = np.imag(args[0])
+    else:
       ys = args[0]
       xs = np.arange(len(ys))
-    elif len(args) == 2:
-      if isinstance(args[1], str):
-        ys = args[0]
-        xs = np.arange(len(ys))
-        args_ = (args[1],)
+  elif len(args) >= 2:
+    # where does the string start
+    if isinstance(args[1], str):
+      iarg_start = 1
+    else:
+      iarg_start = 2
+
+    args_ = args[iarg_start:]
+    if iarg_start == 1:
+      if np.iscomplex(args[0]).sum() > 0:
+        xs = np.real(args[0])
+        ys = np.imag(args[0])
       else:
-        xs = args[0]
-        ys = args[1]
-    elif len(args) == 3:
+        ys = args[0]
+        if np.isscalar(ys):
+          xs = 0
+        else:
+          xs = np.arange(len(ys))
+    elif iarg_start == 2:
       xs = args[0]
       ys = args[1]
-      args_ = (args[2],)
 
-    # do rotation
+  if not np.isclose(rot_deg, 0.):
+    xs, ys = rot2D(xs, ys, np.deg2rad(rot_deg))
 
-    ax.plot(*rot2D(xs, ys, angle), *args_, **kwargs)
+  xs = arrayify(xs)
+  ys = arrayify(ys)
+  lobj = ax.plot(xs.ravel(), ys.ravel(), *args_, **kwargs)
 
-  else:  # normal plotting
+  if center:
+    center_plot_around_origin(ax=ax)
+    ax.plot(0, 0, 'k+', markersize=10, markeredgewidth=3)
 
-    ax.plot(*args, **kwargs)
+  if mark_endpoints:
+    if endpoint_color.startswith('match'):
+      endpoint_color = lobj[0].get_color()
+
+    if endpoints_as_text:
+      ax.text(xs.ravel()[0], ys.ravel()[0], 'start', fontsize=8, fontweight='bold', ha='center',
+              va='center', alpha=0.5, color=endpoint_color)
+      ax.text(xs.ravel()[-1], ys.ravel()[-1], 'end', fontsize=8, fontweight='bold', ha='center',
+              va='center', alpha=0.5, color=endpoint_color)
+    else:
+      ax.plot(xs.ravel()[0], ys.ravel()[0], 's', mfc='none', markersize=10, markeredgewidth=2,
+              alpha=0.5, color=endpoint_color)
+      ax.plot(xs.ravel()[-1], ys.ravel()[-1], 'o', mfc='none', markersize=10, markeredgewidth=2,
+              alpha=0.5, color=endpoint_color)
 
   plt.show(block=False)
   plt.draw()
+
+  if return_kid:
+    return ax, lobj
+  else:
+    return ax
+
+
+def center_plot_around_origin(ax=None, aspect='equal'):
+  """
+  center the plot based on the current content
+  """
+  # get current bounds
+  if ax is None:
+    ax = plt.gca()
+
+  xbound = ax.get_xbound()
+  ybound = ax.get_ybound()
+
+  dev = np.max([*np.abs(xbound), *np.abs(ybound)])
+
+  ax.set_xlim(left=-dev, right=dev)
+  ax.set_ylim(top=dev, bottom=-dev)
+
+  if aspect is not None:
+    ax.set_aspect(aspect)
 
   return ax
 
@@ -2583,9 +3180,7 @@ def qplot_(*args, **kwargs):
   """
   a quicklook plot which will create a new figure
   """
-  ax = qplot(*args, ax=None, **kwargs)
-
-  return ax
+  return qplot(*args, ax=None, **kwargs)
 
 
 def subtr_angles(angle1, angle2):
@@ -3253,11 +3848,14 @@ def markerline(marker, length=None, text=None, doprint=True, edge=None):
   return line
 
 
-def print_in_columns(strlist, maxlen=None, sep='', colwidths=None, print_=True):
+def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True,
+                     shorten_last_col=True, hline_at_index=None, hline_marker='-'):
   """
   print a list of strings as a row with n columns
   """
   if maxlen is None:
+    maxlen = 100000000
+  elif maxlen == 'auto':
     maxlen = os.get_terminal_size().columns
 
   # check the column widths if they are given
@@ -3281,14 +3879,19 @@ def print_in_columns(strlist, maxlen=None, sep='', colwidths=None, print_=True):
 
   # check if the total size does not exceed the available size
   if total_size_needed > maxlen:
-    raise ValueError("The total amount of space required does not fit in the available space")
+    if shorten_last_col:
+      colsizes_needed[-1] = colsizes_needed[-1] - total_size_needed + maxlen - 1
+    else:
+      raise ValueError("The total amount of space required does not fit in the available space")
 
   # build the string
   lines = []
   for ir in range(nr):
     line = ''
     for ic in range(nc):
-      line += " {:{:d}s} {:s}".format(strarr[ir][ic], colsizes_needed[ic], sep)
+      line += " {:{:d}s} {:s}".format(short_string(strarr[ir][ic],
+                                                   colsizes_needed[ic],
+                                                   what2keep='end'), colsizes_needed[ic], sep)
 
     # adjust edges
     line = line[1:-1]
@@ -3297,6 +3900,15 @@ def print_in_columns(strlist, maxlen=None, sep='', colwidths=None, print_=True):
       print(line)
 
     lines.append(line)
+
+  if hline_at_index is not None:
+    nof_lines = len(lines)
+    hline = hline_marker*(total_size_needed + len(sep))
+    hline_at_indices_lst = [nof_lines + idx + 1 if idx < 0 else idx for idx in listify(hline_at_index)]
+    # get the indices backwards
+    hlines_at_indices = np.sort(hline_at_indices_lst)[-1::-1]
+    for iline in hlines_at_indices:
+      lines.insert(iline, hline)
 
   return lines
 
@@ -3675,3 +4287,14 @@ def is_line_from_points_in_box(bl, tr, pt1, pt2):
   intdict = intersections_line_and_box(bl, tr, line)
 
   return intdict['is_inside']
+
+
+def strip_sep_from_string(text, sep='_'):
+  """
+  process the text parts regarding glueing character (underscore)
+  """
+  # sep at beginning
+  text_ = text[1:] if text.startswith(sep) else text
+  _text_ = text_[:-1] if text_.endswith(sep) else text_
+
+  return _text_
