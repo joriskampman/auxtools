@@ -12,7 +12,7 @@ from tkinter import Tk, filedialog
 import matplotlib.pyplot as plt
 import os
 from scipy.interpolate import interp1d
-from scipy.misc import factorial
+from scipy.special import factorial
 import numexpr as ne
 import re
 from copy import deepcopy
@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import QApplication
 from matplotlib.patches import Ellipse
 import glob
 import pandas as pd
+import inspect
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -54,8 +55,190 @@ confidence_table = pd.Series(
 confidence_table.interpolate(method='cubic', inplace=True)
 
 
+# CLASSES
 class IncorrectNumberOfFilesFound(Exception):
   pass
+
+
+# FUNCTIONS
+def inspect_dict(dict_, searchfor=None):
+  """
+  show all key value pairs in a dictionary
+  """
+  keys = list(dict_.keys())
+
+  if searchfor is not None:
+    keys = [key for key in keys if key.find(searchfor) > -1]
+
+  markerline("=", text=" Dictionary inspector ")
+  list_to_print = [['NAME', 'TYPE(#)', 'VALUES/CONTENT']]
+  for key in keys:
+    value = dict_[key]
+    if np.isscalar(value):
+      if isinstance(value, (int, np.int_)):
+        item_for_list = [key, 'integer', '{:d}'.format(value)]
+      elif isinstance(value, str):
+        item_for_list = [key, 'string', "'{:s}'".format(value.strip())]
+      elif isinstance(value, (float, np.float_)):
+        item_for_list = [key, 'float', '{:f}'.format(value)]
+    elif isinstance(value, dict):
+      item_for_list = [key, '{:d}-dict'.format(len(value.keys())),
+                       '{:s}'.format(print_list(list(value.keys())))]
+    elif isinstance(value, np.ndarray):
+      item_for_list = [key, '{}-array ({})'.format(value.shape, value.dtype),
+                       print_list(value.ravel())]
+    elif isinstance(value, list):
+      item_for_list = [key, '{:d}-list ({})'.format(len(value), np.array(value).dtype),
+                       print_list(value)]
+    elif isinstance(value, tuple):
+      item_for_list = [key, '{:d}-tuple ({})'.format(len(value), np.array(value).dtype),
+                       print_list(listify(value))]
+    elif value is None:
+      item_for_list = [key, 'None', 'None']
+    elif isinstance(value, object):
+      item_for_list = [key, 'object', value.__class__.__name__]
+    else:
+      print("huh????")
+      pdb.set_trace()
+
+    list_to_print.append(item_for_list)
+  print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
+
+  return None
+
+
+def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show_unders=False,
+                   show_dunders=False):
+  """
+  show all class properties
+  """
+  attrs = dir(obj)
+
+  if not show_dunders:
+    attrs = [attr for attr in attrs if not attr.startswith("__")]
+
+  if not show_unders:
+    attrs = [attr for attr in attrs if not attr.startswith("_")]
+
+  if searchfor is not None:
+    attrs = [attr for attr in attrs if attr.find(searchfor) > -1]
+
+  # split into properties and methods
+  props = [attr for attr in attrs if not callable(getattr(obj, attr))]
+  meths = [attr for attr in attrs if callable(getattr(obj, attr))]
+
+  markerline("=", text=" Object inspector ")
+  print("\nClass: '{:s}' ".format(obj.__class__.__name__))
+  print("Docstring: {:s}".format(obj.__doc__.strip()))
+  if searchfor is not None:
+    print("\nATTENTION: Searching for string: '{:s}' in attribute name".format(searchfor))
+
+  if show_methods:
+    print("\n")
+    markerline("-", text=' METHODS ')
+    print("")
+    list_to_print = [['NAME', 'SIGNATURE']]
+    for methname in meths:
+      meth = getattr(obj, methname)
+      try:
+        list_to_print.append([methname, str(inspect.signature(meth))[1:-1]])
+      except ValueError:
+        list_to_print.append([methname, '<no signature found>'])
+
+    print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
+
+  if show_props:
+    print("\n")
+    markerline('-', text=' PROPERTIES ')
+    print("")
+    list_to_print = [['NAME', 'TYPE(#)', 'VALUES/CONTENT']]
+    for propname in props:
+      prop = getattr(obj, propname)
+      if np.isscalar(prop):
+        if isinstance(prop, (int, np.int_)):
+          item_for_list = [propname, 'integer', '{:d}'.format(prop)]
+        elif isinstance(prop, str):
+          item_for_list = [propname, 'string', "'{:s}'".format(prop.strip())]
+        elif isinstance(prop, (float, np.float_)):
+          item_for_list = [propname, 'float', '{:f}'.format(prop)]
+      elif isinstance(prop, dict):
+        item_for_list = [propname, '{:d}-dict'.format(len(prop.keys())),
+                         '{:s}'.format(print_list(list(prop.keys())))]
+      elif isinstance(prop, np.ndarray):
+        item_for_list = [propname, '{}-array ({})'.format(prop.shape, prop.dtype),
+                         print_list(prop.ravel())]
+      elif isinstance(prop, list):
+        item_for_list = [propname, '{:d}-list ({})'.format(len(prop), np.array(prop).dtype),
+                         print_list(prop)]
+      elif isinstance(prop, tuple):
+        item_for_list = [propname, '{:d}-tuple ({})'.format(len(prop), np.array(prop).dtype),
+                         print_list(listify(prop))]
+      elif prop is None:
+        item_for_list = [propname, 'None', 'None']
+      elif isinstance(prop, object):
+        item_for_list = [propname, 'object', prop.__class__.__name__]
+      else:
+        print("huh????")
+        pdb.set_trace()
+
+      list_to_print.append(item_for_list)
+    print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
+  markerline("=", text=" End of class content ")
+
+
+def format_matdata_as_dataframe(matdata, fields_to_keep=None):
+  """
+  format the data read from a matfile to a dataframe
+  """
+
+  datadict = dict()
+  keys = [key for key in matdata.keys() if not key.startswith("__")]
+
+  if fields_to_keep is None:
+    fields_to_keep = keys
+
+  for key in fields_to_keep:
+    if isinstance(matdata[key], np.ndarray):
+      if matdata[key].ndim > 1:
+        value_list = [np.array(row) for row in matdata[key]]
+        datadict[key] = value_list
+      else:
+        datadict[key] = matdata[key]
+    else:
+      datadict[key] = matdata[key]
+
+  # make into data frame
+  datadf = pd.DataFrame(data=datadict)
+
+  return datadf
+
+
+def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True):
+  """
+  interpret a sequence string like '0, 10, 3' or '10.4' or 10:0.1:20'
+  """
+  # split the string
+  pos_parts_list = seqstr.split(':')
+  if len(pos_parts_list) == 1:
+    # see if they are separate values
+    seq_values = np.array([typefcn(pos.strip()) for pos in seqstr.strip().split(',')])
+  elif len(pos_parts_list) == 2:
+    begin_, end_ = [typefcn(val) for val in pos_parts_list]
+    incr_angle = 1.
+    seq_values = np.arange(begin_, end_+0.001, incr_angle)
+  elif len(pos_parts_list) == 3:
+    begin_, incr_, end_ = [typefcn(val) for val in pos_parts_list]
+    seq_values = np.arange(begin_, end_+0.001, incr_)
+  else:
+    raise ValueError("The values in the sequence '{:s}' cannot be determined"
+                     .format(seqstr))
+
+  if check_if_int:
+    is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
+    if is_int_seq:
+      seq_values = np.int_(seq_values)
+
+  return seq_values
 
 
 def find_outliers(data, sf_iqr=1.5, axis=None):
@@ -276,14 +459,18 @@ def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill
 
 
 def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d}',
-               strfmt='{:s}', maxlen=None, **short_kws):
+               strfmt='{:s}', cplxfmt='{:f}', maxlen=None, **short_kws):
   """
   glue a list of elements to a string
   """
   types_conv_dict = {str: strfmt,
                      int: intfmt,
                      np.int64: intfmt,
-                     float: floatfmt}
+                     float: floatfmt,
+                     np.complex_: cplxfmt,
+                     complex: cplxfmt,
+                     np.bool_: '{}',
+                     bool: '{}'}
 
   # check the three types
   fmtlist = list2glue.copy()
@@ -3849,7 +4036,8 @@ def markerline(marker, length=None, text=None, doprint=True, edge=None):
 
 
 def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True,
-                     shorten_last_col=True, hline_at_index=None, hline_marker='-'):
+                     shorten_last_col=True, hline_at_index=None, hline_marker='-',
+                     what2keep='end'):
   """
   print a list of strings as a row with n columns
   """
@@ -3891,24 +4079,28 @@ def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True
     for ic in range(nc):
       line += " {:{:d}s} {:s}".format(short_string(strarr[ir][ic],
                                                    colsizes_needed[ic],
-                                                   what2keep='end'), colsizes_needed[ic], sep)
+                                                   what2keep=what2keep), colsizes_needed[ic], sep)
 
     # adjust edges
     line = line[1:-1]
 
-    if print_:
-      print(line)
+    # if print_:
+    #   print(line)
 
     lines.append(line)
 
   if hline_at_index is not None:
     nof_lines = len(lines)
-    hline = hline_marker*(total_size_needed + len(sep))
+    hline = hline_marker*(min(maxlen, total_size_needed) + len(sep))
     hline_at_indices_lst = [nof_lines + idx + 1 if idx < 0 else idx for idx in listify(hline_at_index)]
     # get the indices backwards
     hlines_at_indices = np.sort(hline_at_indices_lst)[-1::-1]
     for iline in hlines_at_indices:
       lines.insert(iline, hline)
+
+  if print_:
+    for line in lines:
+      print(line)
 
   return lines
 
