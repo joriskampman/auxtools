@@ -1269,6 +1269,19 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
 
 
 def select_folder(**options):
+  """
+  select a folder. It's a wrapper arouind filedialog from tkinter module
+
+  **options are:
+    parent - the window to place the dialog on top of
+    title - the title of the window
+    initialdir - the directory that the dialog starts in
+    initialfile - the file selected upon opening of the dialog
+    filetypes - a sequence (list) of (<label>, <pattern>)-tuples in which the '*' wildcard is
+                allowed
+    defaultextension - the default extension to append to file (save dialogs only)
+    multiple - when True, selection of multiple items is allowed (default=False)
+  """
   root = Tk()
   root.withdraw()
 
