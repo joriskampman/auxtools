@@ -470,7 +470,8 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
                      np.complex_: cplxfmt,
                      complex: cplxfmt,
                      np.bool_: '{}',
-                     bool: '{}'}
+                     bool: '{}',
+                     dict: "<dict>"}
 
   # check the three types
   fmtlist = list2glue.copy()
@@ -494,7 +495,8 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
   types_conv_dict = {str: strfmt,
                      int: intfmt,
                      np.int64: intfmt,
-                     float: floatfmt}
+                     float: floatfmt,
+                     np.ndarray: '{}'}
 
   # check the three types
   nof_elms = len(dict2glue)
