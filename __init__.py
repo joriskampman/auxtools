@@ -3015,9 +3015,16 @@ def exp_fast(data):
   return ne.evaluate('exp(data)')
 
 
+def qplot_(*args, **kwargs):
+  """
+  a quicklook plot which will create a new figure
+  """
+  return qplot(*args, ax=None, **kwargs)
+
+
 def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
           mark_endpoints=False, endpoints_as_text=False, endpoint_color='k', return_kid=False,
-          **kwargs):
+          **plotkwargs):
   """
   a quicklook plot
 
@@ -3056,15 +3063,10 @@ def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
   ax : axes
        The axes object containing the plots
   """
-  # set kwargs if no display spec is given
-  if isinstance(args[0], str):
-    if args[0].startswith(('-n', '--new')):
-      fig, ax = plt.subplots(1)
-      args = args[1:]
-
+  kwargs = dict()
   if not isinstance(args[-1], str):
-    kwargs_plot = dict(marker='.', color='b', linestyle='-')
-    kwargs.update(**kwargs_plot)
+    kwargs = dict(marker='.', color='b', linestyle='-')
+  kwargs.update(**plotkwargs)
 
   # plot in current figure
   if ax is None:
@@ -3376,13 +3378,6 @@ def rot2D(xs, ys, angle):
   xsr, ysr = rotmat@poss
 
   return xsr, ysr
-
-
-def qplot_(*args, **kwargs):
-  """
-  a quicklook plot which will create a new figure
-  """
-  return qplot(*args, ax=None, **kwargs)
 
 
 def subtr_angles(angle1, angle2):
