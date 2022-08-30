@@ -150,7 +150,8 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
 
   markerline("=", text=" Object inspector ")
   print("\nClass: '{:s}' ".format(obj.__class__.__name__))
-  print("Docstring: {:s}".format(obj.__doc__.strip()))
+  if obj.__doc__ is not None:
+    print("Docstring: {:s}".format(obj.__doc__.strip()))
   if searchfor is not None:
     print("\nATTENTION: Searching for string: '{:s}' in attribute name".format(searchfor))
 
@@ -492,7 +493,8 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
                      complex: cplxfmt,
                      np.bool_: '{}',
                      bool: '{}',
-                     dict: "<dict>"}
+                     dict: "<dict>",
+                     list: "<list>"}
 
   # check the three types
   fmtlist = list2glue.copy()
