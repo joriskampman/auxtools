@@ -61,6 +61,27 @@ class IncorrectNumberOfFilesFound(Exception):
 
 
 # FUNCTIONS
+
+def remove_empty_axes(fig):
+  """
+  remove empty axes
+  """
+  axs = listify(fig.axes)
+
+  artists_to_check = ['lines', 'collections', 'images']
+  for ax in axs:
+    nof_artists_in_ax = 0
+    for art in artists_to_check:
+      nof_artists_in_ax += len(getattr(ax, art))
+
+    if nof_artists_in_ax == 0:
+      ax.remove()
+
+  plt.draw()
+
+  return None
+
+
 def inspect_dict(dict_, searchfor=None):
   """
   show all key value pairs in a dictionary
