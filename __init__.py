@@ -32,6 +32,9 @@ from matplotlib.patches import Ellipse
 import glob
 import pandas as pd
 import inspect
+from itertools import cycle
+import time
+from cycler import cycler
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -61,6 +64,58 @@ class IncorrectNumberOfFilesFound(Exception):
 
 
 # FUNCTIONS
+def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=3, loopback=True):
+  """
+  a sleep function that shows a wait message
+  """
+  if msg is None:
+    time.sleep(sleeptime)
+    return
+
+  if msg == 'default':
+    wm = create_wait_message(nof_blinks=nof_blinks, loopback=loopback)
+  else:
+    wm = create_wait_message(msg=msg, nof_blinks=nof_blinks, loopback=loopback)
+
+  tic = time.time()
+  while time.time() - tic < sleeptime:
+    print(next(wm), end='\r')
+    time.sleep(polling_time)
+
+  # newline after message
+  print("")
+
+  return None
+
+
+def create_wait_message(msg="All hail the Star Trek queen: Seven of Nine !!", nof_blinks=3,
+                        loopback=True):
+  """
+  display a wait message
+  """
+  nof_chars = len(msg)
+  parts = []
+
+  # single full message
+  for ichar in range(nof_chars):
+    parts.append("{:{:d}s}".format(msg[:ichar], nof_chars))
+  parts.append(msg)
+
+  # blinking
+  for iblink in range(nof_blinks):
+    parts.append(" "*nof_chars)
+    parts.append(msg)
+
+  # loopback
+  if loopback:
+    for ichar in range(nof_chars, 0, -1):
+      parts.append("{:{:d}s}".format(msg[:ichar], nof_chars))
+
+  # make an iterable out of it
+  rotor = cycle(parts)
+
+  return rotor
+
 
 def remove_empty_axes(fig):
   """
@@ -307,6 +362,14 @@ def find_outliers(data, sf_iqr=1.5, axis=None):
   tf_outliers = ~tf_inliers
 
   return tf_outliers
+
+
+def find_inliers(data, sf_iqr=1.5, axis=None):
+  """
+  find the inliers. This is a simple wrapper around *find_outliers*
+  """
+  tf_outliers = find_outliers(data, sf_iqr=sf_iqr, axis=axis)
+  return ~tf_outliers
 
 
 def dec2hex(decvals, nof_bytes=None):
@@ -3086,9 +3149,9 @@ def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
   ax : axes
        The axes object containing the plots
   """
-  kwargs = dict()
+  kwargs = {}
   if not isinstance(args[-1], str):
-    kwargs = dict(marker='.', color='b', linestyle='-')
+    kwargs = dict(marker='.', linestyle='-')
   kwargs.update(**plotkwargs)
 
   # plot in current figure
@@ -3136,7 +3199,11 @@ def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
 
   xs = arrayify(xs)
   ys = arrayify(ys)
-  lobj = ax.plot(xs.ravel(), ys.ravel(), *args_, **kwargs)
+  if ys.ndim == 2:
+    print(ys.shape)
+    color_cycler = cycler('color', jetmod(ys.shape[1], 'vector', bright=False))
+    ax.set_prop_cycle(color_cycler)
+  lobj = ax.plot(xs, ys, *args_, **kwargs)
 
   if center:
     center_plot_around_origin(ax=ax)
