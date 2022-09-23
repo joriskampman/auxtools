@@ -352,58 +352,84 @@ def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_i
   return seq_values
 
 
-def find_outliers(data, sf_iqr=1.5, axis=None):
+def find_inliers(data, offset=1.5, axis=None, scheme='iqr'):
   """
   find the outliers according to the 1.5 iqr method
   """
+  if scheme is None:
+    tf_inliers = np.ones_like(data, dtype=np.bool_)
+    return tf_inliers, -np.inf, np.inf
+
   if data.ndim > 1:
     if axis is None:
-      output = find_outliers(data.ravel(), sf_iqr=sf_iqr, axis=None)
+      output, thl, thh = find_inliers(data.ravel(), offset=offset, axis=None, scheme=scheme)
       output = np.reshape(output, data.shape)
-      return output
+      return output, thl, thh
     else:
       # move the iteration axis to the first index
       datamod = np.moveaxis(data, axis, 0)
       datamod2 = datamod.reshape(datamod.shape[0], np.prod(datamod.shape[1:])).T
       # datamod2 = np.moveaxis(datamod, 0, 1)
       resultveclist = []
+      thllist = []
+      thhlist = []
       for datavec in datamod2:
-        resultvec = find_outliers(datavec, sf_iqr=sf_iqr, axis=0)
+        resultvec, thl, thh = find_inliers(datavec, offset=offset, axis=0, scheme=scheme)
         resultveclist.append(resultvec)
+        thllist.append(thl)
+        thhlist.append(thh)
 
       # reshape
       results = np.array(resultveclist)
-
       results = np.moveaxis(results.T, 0, axis)
 
-      return results
+      thls = np.array(thllist)
+      thhs = np.array(thhlist)
+
+      return results, thls, thhs
 
   if np.iscomplex(data).sum() >= 1:
     data_ = np.abs(data)
   else:
     data_ = data.copy()
 
-  q1 = np.percentile(data_, 25)
-  q3 = np.percentile(data_, 75)
-  iqr = q3 - q1
+  if scheme == 'iqr':
+    q1 = np.percentile(data_, 25)
+    q3 = np.percentile(data_, 75)
+    iqr = q3 - q1
 
-  # determine low and high thresholds
-  thres_low = q1 - sf_iqr*iqr
-  thres_high = q3 + sf_iqr*iqr
+    # determine low and high thresholds
+    thres_low = q1 - offset*iqr
+    thres_high = q3 + offset*iqr
 
-  # test against thresholds
+    # test against thresholds
+  elif scheme == 'offset':
+    # determine thresholds low and high
+    if np.isscalar(offset):
+      os_low = np.abs(offset)
+      os_high = np.abs(offset)
+    else:
+      os_low, os_high = np.abs(offset)
+
+    med = np.median(data_)
+    thres_low = med - os_low
+    thres_high = med + os_high
+  else:
+    raise NotImplementedError("The scheme given ({}) is not implemented (yet)".format(scheme))
+
+  # determine the inliers and outliers
   tf_inliers = (data_ >= thres_low)*(data_ <= thres_high)
-  tf_outliers = ~tf_inliers
 
-  return tf_outliers
+  return tf_inliers, thres_low, thres_high
 
 
-def find_inliers(data, sf_iqr=1.5, axis=None):
+def find_outliers(data, offset=1.5, axis=None, scheme='iqr'):
   """
   find the inliers. This is a simple wrapper around *find_outliers*
   """
-  tf_outliers = find_outliers(data, sf_iqr=sf_iqr, axis=axis)
-  return ~tf_outliers
+  tf_inliers, thl, thh = find_inliers(data, offset=offset, axis=axis, scheme=scheme)
+
+  return ~tf_inliers, thl, thh
 
 
 def dec2hex(decvals, nof_bytes=None):
