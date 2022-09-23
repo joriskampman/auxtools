@@ -495,8 +495,8 @@ def plot_grid(data_cplx, *args, ax=None, **kwargs):
   return ax
 
 
-def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=None,
-                   ha='right', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
+def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', href=None,
+                   ha='left', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
                    fontweight='normal', fontsize=8, fontname='monospace', fontcolor='k'):
   """
   add text inset
@@ -517,8 +517,8 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=N
       ypos = 0.02
 
   # get axees
-  if ax is None:
-    ax = plt.gca()
+  if href is None:
+    href = plt.gca()
 
   # info is on the right side, calculate the offset
   if ha == 'right' and left_align_lines:
@@ -531,14 +531,13 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=N
   text_inset_text = '\n'.join(text_inset_strs_list)
 
   # add the text to the axes
-  ax.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
+  href.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
           fontname=fontname, ha=ha, va=va, bbox=dict(boxstyle="Round, pad=0.2", ec='k',
-                                                     fc=boxcolor),
-          transform=ax.transAxes, color=fontcolor)
+                                                     fc=boxcolor), color=fontcolor)
 
   plt.draw()
 
-  return ax
+  return href
 
 
 def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill=False,
@@ -3260,7 +3259,6 @@ def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
   xs = arrayify(xs)
   ys = arrayify(ys)
   if ys.ndim == 2:
-    print(ys.shape)
     color_cycler = cycler('color', jetmod(ys.shape[1], 'vector', bright=False))
     ax.set_prop_cycle(color_cycler)
   lobj = ax.plot(xs, ys, *args_, **kwargs)
