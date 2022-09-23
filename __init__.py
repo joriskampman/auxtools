@@ -603,7 +603,7 @@ def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill
 
 
 def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d}',
-               strfmt='{:s}', cplxfmt='{:f}', maxlen=None, **short_kws):
+               strfmt='{:s}', cplxfmt='{:f}', compress=False, maxlen=None, **short_kws):
   """
   glue a list of elements to a string
   """
@@ -619,6 +619,29 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
                      list: "<list>"}
 
   # check the three types
+  if compress:
+    # check if monospaced
+    arr2glue = arrayify(list2glue)
+    stepvals = np.unique(np.diff(arr2glue))
+    if stepvals.size == 1:
+      step = float(stepvals.item())
+      minval, maxval = bracket(arr2glue)
+      minval = float(minval)
+      maxval = float(maxval)
+      if minval.is_integer() and maxval.is_integer() and step.is_integer():
+        fmt = intfmt
+        step = int(step)
+        minval = int(minval)
+        maxval = int(maxval)
+      else:
+        fmt = floatfmt
+      output_string = fmt.format(minval) + ":" + fmt.format(step) + ":" + fmt.format(maxval)
+      return output_string
+    else:
+      warn("This list cannot be compressed in min:step:max, since there is not a single step",
+           category=UserWarning)
+
+  # if not compressed or compressible (after a warning)
   fmtlist = list2glue.copy()
   for key in types_conv_dict.keys():
     fmtlist = [types_conv_dict[key] if isinstance(elm, key) else elm for elm in fmtlist]
