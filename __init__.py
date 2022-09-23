@@ -64,6 +64,40 @@ class IncorrectNumberOfFilesFound(Exception):
 
 
 # FUNCTIONS
+def savefig(fig, name=None, dirname=None, ext=".png", force=False, close=False, **savefig_kwargs):
+  """
+  save the figure
+  """
+  kwargs = dict(format=ext[1:], papertype="a3")
+  kwargs.update(savefig_kwargs)
+
+  if name is None:
+    name = fig.get_label()
+    # remove [x] part
+    istop = name.find("[")
+    if istop > 0:
+      name = name[:istop]
+    # replace spaces with underscores
+    name = name.replace(" ", "_")
+
+  if dirname is None:
+    dirname = os.curdir
+
+  ffilename = os.path.join(dirname, name + ext)
+  if not force:
+    if os.path.exists(ffilename):
+      raise FileExistsError("The file '{:s}' already exists".format(ffilename))
+
+  print("Saving figure '{:s}' .. ".format(ffilename), end='')
+  fig.savefig(ffilename, **kwargs)
+  print("done")
+
+  if close:
+    plt.close(fig)
+
+  return None
+
+
 def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=3, loopback=True):
   """
   a sleep function that shows a wait message
