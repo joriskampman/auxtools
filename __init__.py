@@ -32,6 +32,8 @@ from matplotlib.patches import Ellipse
 import glob
 import pandas as pd
 import inspect
+from itertools import cycle
+import time
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -61,6 +63,58 @@ class IncorrectNumberOfFilesFound(Exception):
 
 
 # FUNCTIONS
+def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=3, loopback=True):
+  """
+  a sleep function that shows a wait message
+  """
+  if msg is None:
+    time.sleep(sleeptime)
+    return
+
+  if msg == 'default':
+    wm = create_wait_message(nof_blinks=nof_blinks, loopback=loopback)
+  else:
+    wm = create_wait_message(msg=msg, nof_blinks=nof_blinks, loopback=loopback)
+
+  tic = time.time()
+  while time.time() - tic < sleeptime:
+    print(next(wm), end='\r')
+    time.sleep(polling_time)
+
+  # newline after message
+  print("")
+
+  return None
+
+
+def create_wait_message(msg="All hail the Star Trek queen: Seven of Nine !!", nof_blinks=3,
+                        loopback=True):
+  """
+  display a wait message
+  """
+  nof_chars = len(msg)
+  parts = []
+
+  # single full message
+  for ichar in range(nof_chars):
+    parts.append("{:{:d}s}".format(msg[:ichar], nof_chars))
+  parts.append(msg)
+
+  # blinking
+  for iblink in range(nof_blinks):
+    parts.append(" "*nof_chars)
+    parts.append(msg)
+
+  # loopback
+  if loopback:
+    for ichar in range(nof_chars, 0, -1):
+      parts.append("{:{:d}s}".format(msg[:ichar], nof_chars))
+
+  # make an iterable out of it
+  rotor = cycle(parts)
+
+  return rotor
+
 
 def remove_empty_axes(fig):
   """
@@ -255,10 +309,11 @@ def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_i
     raise ValueError("The values in the sequence '{:s}' cannot be determined"
                      .format(seqstr))
 
-  if check_if_int:
-    is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
-    if is_int_seq:
-      seq_values = np.int_(seq_values)
+  if isinstance(typefcn, (np.float_, np.float, float)):
+    if check_if_int:
+      is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
+      if is_int_seq:
+        seq_values = np.int_(seq_values)
 
   return seq_values
 
