@@ -324,30 +324,47 @@ def format_matdata_as_dataframe(matdata, fields_to_keep=None):
   return datadf
 
 
-def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True):
+def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True,
+                              unique=True, sort=True):
   """
   interpret a sequence string like '0, 10, 3' or '10.4' or 10:0.1:20'
   """
   # split the string
-  pos_parts_list = seqstr.split(':')
-  if len(pos_parts_list) == 1:
-    # see if they are separate values
-    seq_values = np.array([typefcn(pos.strip()) for pos in seqstr.strip().split(',')])
-  elif len(pos_parts_list) == 2:
-    begin_, end_ = [typefcn(val) for val in pos_parts_list]
-    incr_angle = 1.
-    seq_values = np.arange(begin_, end_+0.001, incr_angle)
-  elif len(pos_parts_list) == 3:
-    begin_, incr_, end_ = [typefcn(val) for val in pos_parts_list]
-    seq_values = np.arange(begin_, end_+0.001, incr_)
-  else:
-    raise ValueError("The values in the sequence '{:s}' cannot be determined"
-                     .format(seqstr))
+  csv_parts = [elm.strip() for elm in seqstr.split(",")]
+
+  seq_values_list = []
+  for csv_part in csv_parts:
+    pos_parts_list = csv_part.split(':')
+    if len(pos_parts_list) == 1:
+      # see if they are separate values
+      seq_values = np.array([typefcn(pos.strip()) for pos in csv_part.strip().split(',')])
+    elif len(pos_parts_list) == 2:
+      if pos_parts_list[0] == '':
+        pos_parts_list[0] = '0.'
+      begin_, end_ = [typefcn(val) for val in pos_parts_list]
+      incr_angle = 1.
+      seq_values = np.arange(begin_, end_+0.001, incr_angle)
+    elif len(pos_parts_list) == 3:
+      begin_, incr_, end_ = [typefcn(val) for val in pos_parts_list]
+      seq_values = np.arange(begin_, end_+0.001, incr_)
+    else:
+      raise ValueError("The values in the sequence '{:s}' cannot be determined"
+                       .format(csv_part))
+
+    seq_values_list += seq_values.tolist()
+
+  seq_values = np.array(seq_values_list)
 
   if check_if_int:
     is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
     if is_int_seq:
       seq_values = np.int_(seq_values)
+
+  if unique:
+    seq_values = np.unique(seq_values)
+  else:
+    if sort:
+      seq_values = np.sort(seq_values)
 
   return seq_values
 
