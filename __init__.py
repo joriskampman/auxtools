@@ -2353,6 +2353,9 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
     elif types[irow] == str:
       tkvar.append(tk.StringVar(master, value=defaults[irow]))
 
+    elif types[irow] in (bool, np.bool_):
+      tkvar.append(tk.BooleanVar(master, value=defaults[irow]))
+
     else:
       raise ValueError('The type "{}" is not recognized'.format(types[irow]))
 
