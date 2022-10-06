@@ -64,10 +64,47 @@ class IncorrectNumberOfFilesFound(Exception):
 
 
 # FUNCTIONS
-def savefig(fig, name=None, dirname=None, ext=".png", force=False, close=False, **savefig_kwargs):
+def common_part(list_of_strings, return_uncommon=False):
+  """
+  what is the common part in all strings in the list
+  """
+  list_of_strings = listify(list_of_strings)
+
+  # how many
+  nof_strs = len(list_of_strings)
+
+  # find the maximum length
+  sizes = np.array([len(str_) for str_ in list_of_strings])
+  max_size = sizes.max()
+
+  # build the character array
+  chararr = np.empty((nof_strs, max_size), dtype="U1")
+  for istr, str_ in enumerate(list_of_strings):
+    chararr[istr, :] = list(str_)
+
+  is_equal = np.zeros((max_size), dtype=np.bool_)
+  for ichar in range(max_size):
+    is_equal[ichar] = True if np.unique(chararr[:, ichar]).size == 1 else False
+
+  ifirst_uncommon = np.argwhere(~is_equal).ravel()[0]
+
+  if return_uncommon:
+    part_of_interest = []
+    for str_ in list_of_strings:
+      part_of_interest.append(str_[ifirst_uncommon:])
+  else:
+    part_of_interest = list_of_strings[0][:ifirst_uncommon]
+
+  return part_of_interest
+
+
+def savefig(fig=None, name=None, dirname=None, ext=".png", force=False, close=False, **savefig_kwargs):
   """
   save the figure
   """
+  if fig is None:
+    fig = plt.gcf()
+
   kwargs = dict(format=ext[1:], papertype="a3")
   kwargs.update(savefig_kwargs)
 
@@ -325,7 +362,7 @@ def format_matdata_as_dataframe(matdata, fields_to_keep=None):
 
 
 def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True,
-                              unique=True, sort=True):
+                              unique=False, sort=False):
   """
   interpret a sequence string like '0, 10, 3' or '10.4' or 10:0.1:20'
   """
@@ -512,30 +549,49 @@ def plot_grid(data_cplx, *args, ax=None, **kwargs):
   return ax
 
 
-def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', href=None,
+def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right', href=None,
                    ha='left', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
                    fontweight='normal', fontsize=8, fontname='monospace', fontcolor='k'):
   """
   add text inset
   """
-  # get the positions
-  xpos = x
-  ypos = y
-  if xpos is None:
-    if loc.lower().find("right") > -1:
-      xpos = 0.98
-    elif loc.lower().find("left") > -1:
-      xpos = 0.02
-
-  if ypos is None:
-    if loc.lower().find("upper") or loc.lower().find("top"):
-      ypos = 0.98
-    elif loc.lower().find("lower") or loc.lower().find("bottom"):
-      ypos = 0.02
-
-  # get axees
+  # get reference (figure or axes)
   if href is None:
     href = plt.gca()
+
+  # get the maximum distances
+  if isinstance(href, plt.Figure):
+    xleft = 0.02
+    xright = 0.98
+    xcenter = 0.5
+    ytop = 0.98
+    ycenter = 0.5
+    ybottom = 0.02
+  elif isinstance(href, plt.Axes):
+    xleft, xright = href.get_xlim()
+    xcenter = (xright + xleft)/2
+    ytop, ybottom = href.get_ylim()
+    ycenter = (ytop + ybottom)/2
+
+  # get the positions
+  if xpos is None:
+    if loc.lower().find("right") > -1:
+      xpos = xright
+    elif loc.lower().find("left") > -1:
+      xpos = xleft
+    else:
+      xpos = xcenter
+
+  if ypos is None:
+    if loc.lower().find("upper") or loc.lower().find("top") > -1:
+      ypos = ytop
+      va = 'bottom'
+    elif loc.lower().find("lower") or loc.lower().find("bottom") > -1:
+      ypos = ybottom
+      va = 'top'
+    else:
+      ypos = ycenter
+      va = 'center'
 
   # info is on the right side, calculate the offset
   if ha == 'right' and left_align_lines:
@@ -549,8 +605,8 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', href
 
   # add the text to the axes
   href.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
-          fontname=fontname, ha=ha, va=va, bbox=dict(boxstyle="Round, pad=0.2", ec='k',
-                                                     fc=boxcolor), color=fontcolor)
+            fontname=fontname, ha=ha, va=va, bbox=dict(boxstyle="Round, pad=0.2", ec='k',
+                                                       fc=boxcolor), color=fontcolor)
 
   plt.draw()
 
