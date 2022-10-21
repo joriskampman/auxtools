@@ -35,6 +35,7 @@ import inspect
 from itertools import cycle
 import time
 from cycler import cycler
+from matplotlib.gridspec import GridSpec
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -64,6 +65,167 @@ class IncorrectNumberOfFilesFound(Exception):
 
 
 # FUNCTIONS
+def break_text(text, maxlen, glue=None, silence_warning=False, print_=False):
+  """
+  break a long text line into a list or a glued string (glue=\n)
+
+  if glue is not None but a str or char, this str or char will be the glue
+  """
+  nof_too_long_parts = 0
+  str_list = []
+  nof_chars = len(text)
+  istart = 0
+  stop_after_this_iter = False
+  while True:
+    iend0 = istart + maxlen
+    if iend0 <= nof_chars:
+      iend = iend0
+    else:
+      iend = nof_chars
+      stop_after_this_iter = True
+    textpart = text[istart:iend]
+    words = textpart.split(' ')
+    if len(words) > 1:
+      if not stop_after_this_iter:
+        len_last_part = len(words[0])
+        if len_last_part > 0:
+          words = words[:-1]
+      textpart_ok = ' '.join(words)
+    else:
+      nof_too_long_parts += 1
+      word = text[istart:].split(' ')[0]
+      textpart_ok = word
+    str_list.append(textpart_ok.strip())
+
+    # prepare for next iteration
+    istart += len(textpart_ok) + 1
+    if istart >= nof_chars:
+      break
+
+  if not silence_warning:
+    if nof_too_long_parts > 0:
+      warn("The broken text contains {:d} parts that exceed {:d} characters"
+           .format(nof_too_long_parts, nof_chars), category=UserWarning)
+
+  output = str_list
+  if glue is not None:
+    output = glue.join(str_list)
+
+  if print_:
+    print(output)
+    return None
+  else:
+    return output
+
+
+def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='bottom',
+              orientation='landscape', sharex=True, sharey=True):
+  """
+  create a figure containing of one main plot plus a set of subplots
+  """
+  fig = plt.figure(num=figname(name))
+
+  resize_figure(orientation=orientation)
+
+  axs_sub = []
+  nof_subs_per_stack = np.int(0.5 + nof_subs/nof_sub_stacks)
+  if subs_loc in ('top', 'bottom'):
+    gs = GridSpec(ratio+nof_sub_stacks, np.int(0.5 + nof_subs/nof_sub_stacks))
+    # add the subplots to the figure
+    if subs_loc == 'bottom':
+      ax0 = fig.add_subplot(gs[:-nof_sub_stacks, :])
+      if sharex:
+        sharex = ax0
+      else:
+        sharex = None
+      if sharey:
+        sharey = ax0
+      else:
+        sharey = None
+      for isub in range(nof_subs):
+        i_in_stack = isub%nof_subs_per_stack
+        istack = np.int(isub/nof_subs_per_stack)
+        irow_this_stack = -(nof_sub_stacks - istack)
+        ax = fig.add_subplot(gs[irow_this_stack, i_in_stack], sharex=sharex, sharey=sharey)
+        axs_sub.append(ax)
+    elif subs_loc == 'top':
+      ax0 = fig.add_subplot(gs[nof_sub_stacks:, :])
+      if sharex:
+        sharex = ax0
+      else:
+        sharex = None
+      if sharey:
+        sharey = ax0
+      else:
+        sharey = None
+      for isub in range(nof_subs):
+        i_in_stack = isub%nof_subs_per_stack
+        istack = np.int(isub/nof_subs_per_stack)
+        irow_this_stack = istack
+        ax = fig.add_subplot(gs[irow_this_stack, i_in_stack], sharex=sharex, sharey=sharey)
+        axs_sub.append(ax)
+  elif subs_loc in ('left', 'right'):
+    gs = GridSpec(np.int(0.5 + nof_subs/nof_sub_stacks), ratio+nof_sub_stacks)
+    if subs_loc == 'left':
+      ax0 = fig.add_subplot(gs[:, nof_sub_stacks:])
+      if sharex:
+        sharex = ax0
+      else:
+        sharex = None
+      if sharey:
+        sharey = ax0
+      else:
+        sharey = None
+      for isub in range(nof_subs):
+        i_in_stack = isub%nof_subs_per_stack
+        istack = np.int(isub/nof_subs_per_stack)
+        icol_this_stack = istack
+        ax = fig.add_subplot(gs[i_in_stack, icol_this_stack], sharex=sharex, sharey=sharey)
+        axs_sub.append(ax)
+    elif subs_loc == 'right':
+      ax0 = fig.add_subplot(gs[:, :-nof_sub_stacks])
+      if sharex:
+        sharex = ax0
+      else:
+        sharex = None
+      if sharey:
+        sharey = ax0
+      else:
+        sharey = None
+      for isub in range(nof_subs):
+        i_in_stack = isub%nof_subs_per_stack
+        istack = np.int(isub/nof_subs_per_stack)
+        icol_this_stack = -(nof_sub_stacks - istack)
+        ax = fig.add_subplot(gs[i_in_stack, icol_this_stack], sharex=sharex, sharey=sharey)
+        axs_sub.append(ax)
+
+  return fig, ax0, axs_sub
+
+
+def add_figtitles(texts, fig=None):
+  """
+  add a title to a figure
+  """
+  if fig is None:
+    fig = plt.gcf()
+
+  texts = listify(texts)
+
+  if len(texts) > 0:
+    fig.text(0.5, 0.99, texts[0], ha='center', va='top', fontsize=12, fontweight='bold')
+
+    if len(texts) > 1:
+      fig.text(0.5, 0.97, texts[1], ha='center', va='top', fontsize=10, fontweight='normal')
+
+      if len(texts) > 2:
+        fig.text(0.5, 0.95, texts[2], ha='center', va='top', fontsize=10, fontweight='normal')
+
+  fig.subplots_adjust(top=0.91)
+  plt.draw()
+
+  return fig
+
+
 def common_part(list_of_strings, return_uncommon=False):
   """
   what is the common part in all strings in the list
@@ -98,7 +260,8 @@ def common_part(list_of_strings, return_uncommon=False):
   return part_of_interest
 
 
-def savefig(fig=None, name=None, dirname=None, ext=".png", force=False, close=False, **savefig_kwargs):
+def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=False,
+            close=False, **savefig_kwargs):
   """
   save the figure
   """
@@ -120,12 +283,25 @@ def savefig(fig=None, name=None, dirname=None, ext=".png", force=False, close=Fa
   if dirname is None:
     dirname = os.curdir
 
-  ffilename = os.path.join(dirname, name + ext)
+  if ask:
+    ffilename = select_savefile(title="select the filename",
+                                initialdir=dirname,
+                                initialfile=name + ext,
+                                filetypes=[("PNG files", ".png"),
+                                           ("JPEG files", ".jpg"),
+                                           ("GIF files", ".gif"),
+                                           ("all files", ".txt")])
+  else:
+    ffilename = os.path.join(dirname, name + ext)
+
   if not force:
     if os.path.exists(ffilename):
       raise FileExistsError("The file '{:s}' already exists".format(ffilename))
 
   print("Saving figure '{:s}' .. ".format(ffilename), end='')
+
+  ext = os.path.splitext(ffilename)[-1]
+  kwargs.update(format=ext[1:])
   fig.savefig(ffilename, **kwargs)
   print("done")
 
@@ -192,9 +368,10 @@ def remove_empty_axes(fig):
   """
   remove empty axes
   """
-  axs = listify(fig.axes)
+  axs_sub = listify(fig.axes)
 
   artists_to_check = ['lines', 'collections', 'images']
+  ax0 = fig.add_subplot
   for ax in axs:
     nof_artists_in_ax = 0
     for art in artists_to_check:
@@ -550,8 +727,9 @@ def plot_grid(data_cplx, *args, ax=None, **kwargs):
 
 
 def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right', href=None,
-                   ha='left', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
-                   fontweight='normal', fontsize=8, fontname='monospace', fontcolor='k'):
+                   ha='left', va='top', left_align_lines=True, boxcolor=[0.9, 0.9, 0.99],
+                   boxalpha=1., fontweight='normal', fontsize=8, fontname='monospace',
+                   fontcolor='k'):
   """
   add text inset
   """
@@ -568,10 +746,16 @@ def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right'
     ycenter = 0.5
     ybottom = 0.02
   elif isinstance(href, plt.Axes):
-    xleft, xright = href.get_xlim()
-    xcenter = (xright + xleft)/2
-    ytop, ybottom = href.get_ylim()
-    ycenter = (ytop + ybottom)/2
+    xleft = 0.01
+    xright = 0.99
+    xcenter = 0.5
+    ytop = 0.99
+    ycenter = 0.5
+    ybottom = 0.01
+    # xleft, xright = href.get_xlim()
+    # xcenter = (xright + xleft)/2
+    # ytop, ybottom = href.get_ylim()
+    # ycenter = (ytop + ybottom)/2
 
   # get the positions
   if xpos is None:
@@ -583,12 +767,12 @@ def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right'
       xpos = xcenter
 
   if ypos is None:
-    if loc.lower().find("upper") or loc.lower().find("top") > -1:
+    if loc.lower().find("upper") > -1 or loc.lower().find("top") > -1:
       ypos = ytop
-      va = 'bottom'
-    elif loc.lower().find("lower") or loc.lower().find("bottom") > -1:
-      ypos = ybottom
       va = 'top'
+    elif loc.lower().find("lower") > -1 or loc.lower().find("bottom") > -1:
+      ypos = ybottom
+      va = 'bottom'
     else:
       ypos = ycenter
       va = 'center'
@@ -596,7 +780,7 @@ def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right'
   # info is on the right side, calculate the offset
   if ha == 'right' and left_align_lines:
     # determine the size of the box
-    nof_chars_right_box = max([len(str_) for str_ in text_inset_strs_list])
+    nof_chars_right_box = max([len(str_) for str_ in text_inset_strs_list]) + 1
     text_inset_strs_list = ['{{:<{:d}s}}'.format(nof_chars_right_box).format(str_) for str_ in
                             text_inset_strs_list]
 
@@ -604,13 +788,14 @@ def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right'
   text_inset_text = '\n'.join(text_inset_strs_list)
 
   # add the text to the axes
-  href.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
-            fontname=fontname, ha=ha, va=va, bbox=dict(boxstyle="Round, pad=0.2", ec='k',
-                                                       fc=boxcolor), color=fontcolor)
+  bbox = dict(boxstyle="Round, pad=0.3", ec='k', fc=boxcolor, alpha=boxalpha)
+  txtref = href.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
+                     fontname=fontname, ha=ha, va=va, bbox=bbox, color=fontcolor,
+                     transform=href.transAxes)
 
   plt.draw()
 
-  return href
+  return txtref
 
 
 def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill=False,
@@ -971,6 +1156,9 @@ def pconv(dirname):
   for wkey, sub in win2lin.items():
     dirname = dirname.replace(wkey, sub)
     dirname = dirname.replace(wkey.upper(), sub)
+
+  if not dirname.endswith(os.sep):
+    dirname += os.sep
 
   return dirname
 
@@ -1490,23 +1678,6 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
   filename = filedialog.asksaveasfilename(defaultextension=defaultextension,
                                           initialdir=initialdir, title=title,
                                           initialfile=initialfile, filetypes=filetypes)
-
-  # if check_exists:
-  #   if os.path.exists(filename):
-  #     answer = dinput('The file already exists. Overwrite? [y/n]', 'y')
-  #     if answer[0].lower() == 'y':
-  #       # remove
-  #       os.remove(filename)
-  #       break
-  #     elif answer[0].lower() == 'n':
-  #       # do nothing and re-ask for filename
-  #       pass
-  #     else:
-  #       print('answer given ({}) not understood. Please select `y` or `n`'.format(answer))
-  #   else:
-  #     break
-  # else:
-  #   break
 
   return filename
 
