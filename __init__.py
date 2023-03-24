@@ -18,7 +18,7 @@ import re
 from copy import deepcopy
 
 from scipy.fftpack import fftshift
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, convolve2d
 import os # noqa
 import sys # noqa
 import warnings as wn # noqa
@@ -49,6 +49,37 @@ d2r = np.pi/180
 r2d = 180/np.pi
 T0 = 290
 
+# use_levels:
+# 0: use always
+# 1: use for most cases (kg, meters,...)
+# 2: specific cases (hectopascal comes to mind)
+# 3: don't know any case for now
+si_prefixes = {-30: dict(name="one quintillionth", prefix="quecto", sym='q', use_level=0),
+               -27: dict(name="one quadrilliardth", prefix="ronto", sym='r', use_level=0),
+               -24: dict(name="one quadrillionth", prefix="yocto", sym='y', use_level=0),
+               -21: dict(name="one trilliardth", prefix="zepto", sym='z', use_level=0),
+               -18: dict(name="one trillionth", prefix="atto", sym='a', use_level=0),
+               -15: dict(name="one billiardth", prefix="femto", sym='f', use_level=0),
+               -12: dict(name="one billionth", prefix="pico", sym='p', use_level=0),
+               -9: dict(name="one milliardth", prefix="nano", sym='n', use_level=0),
+               -6: dict(name="one millionth", prefix="micro", sym='u', use_level=0),
+               -3: dict(name="one thousandth", prefix="milli", sym='m', use_level=0),
+               -2: dict(name="one hundreth", prefix="centi", sym='c', use_level=1),
+               -1: dict(name="one tenth", prefix="deci", sym='d', use_level=1),
+               0: dict(name="one", prefix="", sym='', use_level=0),
+               +1: dict(name="ten", prefix="deca", sym='da', use_level=3),
+               +2: dict(name="hundred", prefix="hecto", sym='h', use_level=2),
+               +3: dict(name="thousand", prefix="kilo", sym='k', use_level=0),
+               +6: dict(name="million", prefix="mega", sym='M', use_level=0),
+               +9: dict(name="milliard", prefix="giga", sym='G', use_level=0),
+               +12: dict(name="billion", prefix="tera", sym='T', use_level=0),
+               +15: dict(name="billiard", prefix="peta", sym='P', use_level=0),
+               +18: dict(name="trillion", prefix="exa", sym='E', use_level=0),
+               +21: dict(name="trilliard", prefix="zetta", sym='Z', use_level=0),
+               +24: dict(name="quadrillion", prefix="yotta", sym='Y', use_level=0),
+               +27: dict(name="quadrilliard", prefix="ronna", sym='R', use_level=0),
+               +30: dict(name="quintillion", prefix="quetta", sym='Q', use_level=0)}
+
 confidence_table = pd.Series(
     index=[0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 0.95,
            0.975, 0.99, 0.995],
@@ -59,12 +90,264 @@ confidence_table = pd.Series(
 confidence_table.interpolate(method='cubic', inplace=True)
 
 
+# update the display of warnings
+def formatted_warning(message, category, filename, lineno, file=None, line=None):
+  strbuf = "  "
+  strline = "-"*30
+  message = ("\"" + str(message).strip() + "\"").replace("\n", "\n" + strbuf + " ")
+  message = strbuf + message
+
+  # get length of top part
+  str_top = "{:s} {:s}, {:s}:{:d} {:s}".format(strline, category.__name__,
+                                               os.path.basename(filename), lineno, strline)
+  nchars_top = len(str_top)
+  fmt = ("\n{:s}\n{:s}\n{:s}\n\n"
+         .format(str_top, message, "-"*nchars_top))
+  return fmt
+
+warnings.formatwarning = formatted_warning
+
+
 # CLASSES
 class IncorrectNumberOfFilesFound(Exception):
   pass
 
 
 # FUNCTIONS
+def colorbar(im, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", **kwargs):
+  """
+  wrapper around the colorbar
+  """
+
+  if nof_ticks is None:
+    cbticks = None
+  else:
+    cbticks = np.linspace(pmin, pmax, 11)
+
+  if axs is None:
+    if fig is None:
+      fig = plt.gcf()
+    axs = np.array(fig.axes)
+  elif isinstance(axs, plt.Axes):
+    axs = np.array([axs])
+
+  cb = plt.colorbar(im, ax=axs.ravel().tolist(), ticks=cbticks, **kwargs)
+
+  # get the ticks back
+  ticks = cb.get_ticks()
+  # add the min/max to it
+  cmin, cmax = im.get_clim()
+  ticks_new = np.linspace(cmin, cmax, ticks.size+2)
+  print(ticks_new)
+  ticklabels = print_list(ticks_new, floatfmt=fmt).split(', ')
+  cb.set_ticks(ticks_new, update_ticks=True)
+  plt.draw()
+  plt.pause(1e-4)
+  cb.set_ticklabels(ticklabels, update_ticks=True)
+  print(ticklabels)
+  plt.draw()
+
+  return cb
+
+
+def remove_chars_from_str(string, skipped_chars=[' ', ',', '.', ':', ';', '/', '_', '-', '+']):
+  """
+  remove certain characters from a string
+  """
+  for char in skipped_chars:
+    string = string.replace(char, '')
+
+  return string
+
+
+def find_between_indices(datavec, values, notfound=None):
+  """
+  find the indices between which the value is found
+  """
+  datavec = arrayify(datavec)
+
+  # get the values
+  isscalar = np.isscalar(values)
+  if isscalar:
+    values = listify(values)
+
+  indices = []
+  for val in values:
+    indices_ = [notfound]*2
+    # below
+    ibelows = np.argwhere(datavec <= val)
+    if ibelows.size > 0:
+      indices_[0] = ibelows.item(-1)
+
+    # above
+    iaboves = np.argwhere(datavec >= val)
+    if iaboves.size > 0:
+      indices_[1] = iaboves.item(0)
+
+    # append to indices
+    indices.append(indices_)
+
+  if isscalar:
+    retval = indices[0]
+  else:
+    retval = indices
+
+  return retval
+
+
+def check_if_even(vals):
+  """
+  check if a float is even
+  """
+  vals = listify(vals)
+
+  # check type --> assume all have the same type
+  reslist = []
+  for val in vals:
+    if isinstance(val, (float, np.float_, np.float32, np.float16, np.float64, np.float)):
+      if val.is_integer():
+        val = int(0.5 + val)
+      else:
+        reslist.append(False)
+        continue
+
+    # now the value is an integer
+    if val%2 == 0:
+      reslist.append(True)
+    else:
+      reslist.append(False)
+
+  if len(reslist) == 1:
+    ret = reslist[0]
+  else:
+    ret = reslist
+
+  return ret
+
+
+def check_if_odd(vals):
+  """
+  check if a number is odd
+  """
+  vals = listify(vals)
+
+  # check type --> assume all have the same type
+  reslist = []
+  for val in vals:
+    if isinstance(val, (float, np.float_, np.float32, np.float16, np.float64, np.float)):
+      if val.is_integer():
+        val = int(0.5 + val)
+      else:
+        reslist.append(False)
+        continue
+
+    # now the value is an integer
+    if val%2 == 0:
+      reslist.append(False)
+    else:
+      reslist.append(True)
+
+  if len(reslist) == 1:
+    ret = reslist[0]
+  else:
+    ret = reslist
+
+  return ret
+
+
+def format_as_si(value, fmt="{:g} {:s}", max_use_level=0):
+  """
+  print a value as an SI string value
+  """
+  val, dct = scale_by_si_prefix(value, max_use_level=max_use_level, scale_values=True)
+
+  string = fmt.format(val, dct['sym'])
+
+  return string
+
+
+def scale_by_si_prefix(values, base_pref_on_what='max', max_use_level=0, scale_values=True):
+  """
+  return the scaled values and return the prefix
+  """
+  return_scalar = False
+  if np.isscalar(values):
+    return_scalar = True
+
+  # make an array
+  values = arrayify(values)
+
+  # check which value to analyze
+  if base_pref_on_what.startswith("mean") or base_pref_on_what.startswith("av"):
+    val2check = values.mean()
+  elif base_pref_on_what.startswith("med"):
+    val2check = np.median(values)
+  elif base_pref_on_what.startswith("min"):
+    val2check = values.min()
+  elif base_pref_on_what.startswith("max"):
+    val2check = values.max()
+  else:
+    raise ValueError("The given value for *base_pref_on_what* ({}) is not valid"
+                     .format(base_pref_on_what))
+
+  # split the dictionary si_prefixes
+
+  # get all the actual scaling values (powers of 10)
+  valid_powvals = arrayify([powval for powval in si_prefixes.keys()
+                            if si_prefixes[powval]['use_level'] <= max_use_level])
+
+  # extract the order
+  pow2check = np.log10(np.abs(val2check))
+
+  powdiffs = pow2check - arrayify(valid_powvals)
+  powdiffs[powdiffs < 0] = np.inf
+  ifnd = np.argmin(powdiffs)
+  fnd_powval = valid_powvals[ifnd]
+
+  # get the SI prefix dictionary
+  si_prefix_dict = si_prefixes[fnd_powval]
+
+  output_list = [si_prefix_dict]
+  if scale_values:
+    scale_factor = np.power(10., fnd_powval)
+    scaled_values = values/scale_factor
+    if return_scalar:
+      scaled_values = scaled_values.item(0)
+
+    # add to output_list
+    output_list.insert(0, scaled_values)
+
+  return output_list
+
+
+def dms2angle(dms, angle_units='deg'):
+  """
+  convert the degree/minute/second format to degrees
+  """
+  if isinstance(dms, (tuple, list, np.ndarray)):
+    # check if the first component is a string or another array-like -> it is a list
+    if isinstance(dms[0], (list, tuple, np.ndarray, str)):
+      nof_elms = len(dms)
+    else:
+      nof_elms = 1
+      dms = [dms]
+
+  # loop all elements
+  ang_list = []
+  for dms_ in dms:
+    dms_elm_list_ = [float(elm) for elm in dms_.split()] if isinstance(dms_, str) else dms_
+
+    ang_val = dms_elm_list_[0] + dms_elm_list_[1]/60 + dms_elm_list_[2]/3600
+    ang_list.append(ang_val)
+
+  if nof_elms == 1:
+    ang = ang_list[0]
+  else:
+    ang = ang_list
+
+  return ang
+
+
 def break_text(text, maxlen, glue=None, silence_warning=False, print_=False):
   """
   break a long text line into a list or a glued string (glue=\n)
@@ -211,22 +494,82 @@ def add_figtitles(texts, fig=None):
 
   texts = listify(texts)
 
-  if len(texts) > 0:
-    fig.text(0.5, 0.99, texts[0], ha='center', va='top', fontsize=12, fontweight='bold')
+  # get height
+  hinch = fig.get_size_inches()[1]
+  dpi = fig.get_dpi()
+  ppi = 72.272
 
-    if len(texts) > 1:
-      fig.text(0.5, 0.97, texts[1], ha='center', va='top', fontsize=10, fontweight='normal')
+  fontsize_top_pt = 12
+  fontsize_sub_pt = 8
+  fontweight_top = 'bold'
+  fontweight_subs = 'bold'
 
-      if len(texts) > 2:
-        fig.text(0.5, 0.95, texts[2], ha='center', va='top', fontsize=10, fontweight='normal')
+  # =================================
+  # TOP line
+  # =================================
+  # top buffer of 2 pixels
+  os_pix = 2
+  os_inch = os_pix/dpi
+  os_rel = os_inch/hinch
+  ypos_rel = 1. - os_rel
 
-  fig.subplots_adjust(top=0.91)
+  # add the top text
+  fig.text(0.5, ypos_rel, texts[0], ha='center', va='top', fontsize=fontsize_top_pt,
+           fontweight=fontweight_top,
+           transform=fig.transFigure)
+
+  # add position offset due to top text font size
+  fontsize_top_inch = fontsize_top_pt/ppi
+  fontsize_top_rel = fontsize_top_inch/hinch
+  ypos_rel -= fontsize_top_rel
+
+  # =================================
+  # now for the subs
+  # =================================
+  fontsize_sub_inch = fontsize_sub_pt/ppi
+  fontsize_sub_rel = fontsize_sub_inch/hinch
+
+  # calculate the buffer size in relative units
+  os_pix = 2
+  os_inch = os_pix/dpi
+  os_rel = os_inch/hinch
+
+  # add the buffer below the top line
+
+  # loop
+  for txt in texts[1:]:
+    ypos_rel -= os_rel
+    # add the buffer
+    fig.text(0.5, ypos_rel, txt, ha='center', va='top', fontsize=fontsize_sub_pt,
+             fontweight=fontweight_subs,
+             transform=fig.transFigure)
+    ypos_rel -= fontsize_sub_rel
+    # add extra spacing for fontsize
+
+  # adjust top
+  ypos_current_rel = fig.subplotpars.top
+  os_current_rel = 1. - ypos_current_rel
+  top_new = ypos_rel - os_current_rel
+  fig.subplots_adjust(top=top_new)
   plt.draw()
 
   return fig
 
 
-def common_part(list_of_strings, return_uncommon=False):
+def strip_common_parts(list_of_strings):
+  """
+  strip the common parts of the strings in a list
+  """
+  # strip the beginnings
+  (common_start,
+   stripped_from_start) = common_part(list_of_strings, return_uncommon=True, from_end=False)
+  (common_end,
+   stripped) = common_part(stripped_from_start, return_uncommon=True, from_end=True)
+
+  return stripped, common_start, common_end
+
+
+def common_part(list_of_strings, return_uncommon=False, from_end=False):
   """
   what is the common part in all strings in the list
   """
@@ -237,27 +580,41 @@ def common_part(list_of_strings, return_uncommon=False):
 
   # find the maximum length
   sizes = np.array([len(str_) for str_ in list_of_strings])
-  max_size = sizes.max()
+  size_min = sizes.min()
 
   # build the character array
-  chararr = np.empty((nof_strs, max_size), dtype="U1")
+  chararr = np.empty((nof_strs, size_min), dtype="U1")
   for istr, str_ in enumerate(list_of_strings):
-    chararr[istr, :] = list(str_)
+    if from_end:
+      str_ = str_[-1::-1]
+    chararr[istr, :] = list(str_[:size_min])
 
-  is_equal = np.zeros((max_size), dtype=np.bool_)
-  for ichar in range(max_size):
+  is_equal = np.zeros((size_min), dtype=np.bool_)
+  for ichar in range(size_min):
     is_equal[ichar] = True if np.unique(chararr[:, ichar]).size == 1 else False
 
   ifirst_uncommon = np.argwhere(~is_equal).ravel()[0]
 
-  if return_uncommon:
-    part_of_interest = []
-    for str_ in list_of_strings:
-      part_of_interest.append(str_[ifirst_uncommon:])
+  if from_end:
+    common_part = list_of_strings[0][-ifirst_uncommon:]
   else:
-    part_of_interest = list_of_strings[0][:ifirst_uncommon]
+    common_part = list_of_strings[0][:ifirst_uncommon]
 
-  return part_of_interest
+  if return_uncommon:
+    stripped_list_of_strings = []
+    for str_ in list_of_strings:
+      if from_end:
+        str__ = str_[:-ifirst_uncommon]
+      else:
+        str__ = str_[ifirst_uncommon:]
+      stripped_list_of_strings.append(str__)
+
+      # create output
+      output = (common_part, stripped_list_of_strings)
+  else:
+    output = common_part
+
+  return output
 
 
 def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=False,
@@ -371,8 +728,7 @@ def remove_empty_axes(fig):
   axs_sub = listify(fig.axes)
 
   artists_to_check = ['lines', 'collections', 'images']
-  ax0 = fig.add_subplot
-  for ax in axs:
+  for ax in axs_sub:
     nof_artists_in_ax = 0
     for art in artists_to_check:
       nof_artists_in_ax += len(getattr(ax, art))
@@ -381,6 +737,18 @@ def remove_empty_axes(fig):
       ax.remove()
 
   plt.draw()
+
+  return None
+
+
+def inspector(obj2insp, searchfor=None):
+  """
+  inspect an object
+  """
+  if isinstance(obj2insp, dict):
+    inspect_dict(obj2insp, searchfor=searchfor)
+  else:
+    inspect_object(obj2insp, searchfor=searchfor)
 
   return None
 
@@ -398,13 +766,15 @@ def inspect_dict(dict_, searchfor=None):
   list_to_print = [['NAME', 'TYPE(#)', 'VALUES/CONTENT']]
   for key in keys:
     value = dict_[key]
-    if np.isscalar(value):
-      if isinstance(value, (int, np.int_)):
-        item_for_list = [key, 'integer', '{:d}'.format(value)]
-      elif isinstance(value, str):
-        item_for_list = [key, 'string', "'{:s}'".format(value.strip())]
-      elif isinstance(value, (float, np.float_)):
-        item_for_list = [key, 'float', '{:f}'.format(value)]
+    # if np.isscalar(value):
+    if isinstance(value, (int, np.int_)):
+      item_for_list = [key, 'integer', '{:d}'.format(value)]
+    elif isinstance(value, str):
+      item_for_list = [key, 'string', "'{:s}'".format(value.strip())]
+    elif isinstance(value, (float, np.float_)):
+      item_for_list = [key, 'float', '{:f}'.format(value)]
+    elif isinstance(value, bytes):
+        item_for_list = [key, 'string', value.decode('utf-8')]
     elif isinstance(value, dict):
       item_for_list = [key, '{:d}-dict'.format(len(value.keys())),
                        '{:s}'.format(print_list(list(value.keys())))]
@@ -426,6 +796,7 @@ def inspect_dict(dict_, searchfor=None):
       pdb.set_trace()
 
     list_to_print.append(item_for_list)
+    
   print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
 
   return None
@@ -509,6 +880,8 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
       list_to_print.append(item_for_list)
     print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
   markerline("=", text=" End of class content ")
+
+  return None
 
 
 def format_matdata_as_dataframe(matdata, fields_to_keep=None):
@@ -701,25 +1074,51 @@ def dec2hex(decvals, nof_bytes=None):
   return hexvals
 
 
-def plot_grid(data_cplx, *args, ax=None, **kwargs):
+def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None, **kwargs):
   """
   plot a grid from a 2D set of complex data
   """
+  if np.iscomplex(data.item(0)):
+    data_cplx = data
+  else:
+    data_cplx = data + 1j*args[0]
+    args = args[1:]
+
+  if len(args) == 0:
+    args = ('b-',)
+
   xmeas = np.real(data_cplx)
   ymeas = np.imag(data_cplx)
 
   nr, nc = data_cplx.shape
 
+  if tf_valid is None:
+    tf_valid = np.ones((nr, nc), dtype=np.bool_)
+  else:
+    if tf_valid.shape != (nr, nc):
+      raise ValueError("The dimensions for *tf_valid* are not equal to *data*.")
+
   # plot a grid of lines
   if ax is None:
     ax = plt.gca()
+  elif ax == 'new':
+    fig, ax = plt.subplots(1, 1)
 
   for irow in range(nr):
-    # plot horizontal line
-    ax.plot(xmeas[irow, :], ymeas[irow, :], *args, **kwargs)
+    if tf_valid[irow, :].sum() > 0:
+      # plot horizontal line
+      qplot(xmeas[irow, tf_valid[irow, :]], ymeas[irow, tf_valid[irow, :]], *args, ax=ax, **kwargs)
   for icol in range(63):
-    # plot vertical line
-    ax.plot(xmeas[:, icol], ymeas[:, icol], *args, **kwargs)
+    if tf_valid[:, icol].sum() > 0:
+      # plot vertical line
+      qplot(xmeas[tf_valid[:, icol], icol], ymeas[tf_valid[:, icol], icol], *args, ax=ax, **kwargs)
+
+  # set the aspect ratio
+  ax.set_aspect(aspect)
+
+  # center if necessary
+  if center:
+    center_plot_around_origin(ax)
 
   plt.show(block=False)
 
@@ -798,7 +1197,7 @@ def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right'
   return txtref
 
 
-def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill=False,
+def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fill=False,
              conf=0.67, remove_outliers=True, **kwargs):
   """
   plot the covariance matrix
@@ -819,8 +1218,8 @@ def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill
   # check if the covariance is still to be plotted
   if cov_to_calc:
     if remove_outliers:
-      tf_valid_i = ~find_outliers(data[0])
-      tf_valid_q = ~find_outliers(data[1])
+      tf_valid_i = ~find_outliers(data[0])[0]
+      tf_valid_q = ~find_outliers(data[1])[0]
       tf_valid = tf_valid_i*tf_valid_q
       data[0] = data[0][tf_valid]
       data[1] = data[1][tf_valid]
@@ -834,6 +1233,8 @@ def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill
   # parametric representation
   if ax is None:
     ax = plt.gca()
+  elif ax == 'new':
+    fig, ax = plt.subplots(1, 1)
 
   t = np.linspace(0, 2*np.pi, nof_pts, endpoint=True)
   eigvals, eigvecs = np.linalg.eig(cov)
@@ -850,34 +1251,59 @@ def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, nof_pts=101, fill
   # add the center point
   xt = xt_ + center[0]
   yt = yt_ + center[1]
-  ax.plot(xt, yt, plotspec, **kwargs)
-
   if fill:
     ax.fill(xt, yt, plotspec, **kwargs)
+
+  else:
+    ax.plot(xt, yt, plotspec, **kwargs)
+
   plt.show(block=False)
   plt.draw()
 
-  return ax, cov
+  return ax, center, cov
 
 
 def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d}',
-               strfmt='{:s}', cplxfmt='{:f}', compress=False, maxlen=None, **short_kws):
+               strfmt='{:s}', cplxfmt='{:f}', compress=False, maxlen=None,
+               spiffy=False, **short_kws):
   """
   glue a list of elements to a string
   """
   types_conv_dict = {str: strfmt,
                      int: intfmt,
                      np.int64: intfmt,
+                     np.int16: intfmt,
                      float: floatfmt,
                      np.complex_: cplxfmt,
                      complex: cplxfmt,
                      np.bool_: '{}',
                      bool: '{}',
                      dict: "<dict>",
-                     list: "<list>"}
+                     list: "<list>",
+                     np.int32: intfmt,
+                     type(None): "None"}
+
+  # make inputs a list (in case they are not)
+  list2glue = listify(list2glue)
+  nof_in_list = len(list2glue)
+
+  if spiffy and len(pfx) > 0:
+    pfx_sep_opts = [':', '=', ';', '-']
+    ifnds_sep_from_back = [pfx[-1::-1].find(pfx_sep) for pfx_sep in pfx_sep_opts]
+    ifnds_sep_from_back_valid = [ifnd for ifnd in ifnds_sep_from_back
+                                 if ifnd > -1]
+
+    if len(ifnds_sep_from_back_valid) > 0:
+      # get the position of the separator (nb. the finds where from the back)
+      isep = len(pfx) - (1 + min(ifnds_sep_from_back_valid))
+
+      pfx_sep = pfx[isep]
+
+      replace_with = " ({:d}x){:s}".format(len(list2glue), pfx_sep)
+      pfx = pfx[:isep] + replace_with + pfx[(isep + 1):]
 
   # check the three types
-  if compress:
+  if compress and nof_in_list > 1:
     # check if monospaced
     arr2glue = arrayify(list2glue)
     stepvals = np.unique(np.diff(arr2glue))
@@ -893,7 +1319,8 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
         maxval = int(maxval)
       else:
         fmt = floatfmt
-      output_string = fmt.format(minval) + ":" + fmt.format(step) + ":" + fmt.format(maxval)
+      output_string = (pfx + fmt.format(minval) + ":" + fmt.format(step) +
+                       ":" + fmt.format(maxval) + sfx)
       return output_string
     else:
       warn("This list cannot be compressed in min:step:max, since there is not a single step",
@@ -905,7 +1332,11 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
     fmtlist = [types_conv_dict[key] if isinstance(elm, key) else elm for elm in fmtlist]
 
   output_parts = [fmtstr.format(elm) for (fmtstr, elm) in zip(fmtlist, list2glue)]
-  output_string = pfx + sep.join(output_parts) + sfx
+  if spiffy and nof_in_list > 1:
+    output_string = (pfx + sep.join(output_parts[:-1]) +
+                     " and " + output_parts[-1])
+  else:
+    output_string = pfx + sep.join(output_parts) + sfx
 
   if maxlen is not None:
     output_string = short_string(output_string, maxlen, **short_kws)
@@ -925,7 +1356,6 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
                      np.ndarray: '{}'}
 
   # check the three types
-  nof_elms = len(dict2glue)
   output_list = []
   for key, value in dict2glue.items():
     if isinstance(value, (list, tuple, np.ndarray)):
@@ -1000,11 +1430,33 @@ def RENAME_FILES_AND_FOLDERS_NOT_FINISHED(basedir, str2replace, replacement, rec
   return contents_old, contents_new, dirs, results
 
 
-def extract_value_from_strings(input2check, pattern2match, output_fcn=str,
-                               notfoundvalue=None):
+def extract_value_from_strings(input2check, pattern2match, output_fcn=None, output_type=None,
+                               notfoundvalue=None, check_if_int=False, replacements=False):
   """
   extract values from a list of strings
   """
+  if replacements is None:
+    replacements = dict(v=1.,
+                        V=1.,
+                        uv=1e-6,
+                        uV=1e-6,
+                        mv=1e-3,
+                        mV=1e-3,
+                        p=1e-12,
+                        n=1e-9,
+                        u=1e-6,
+                        m=1e-3,
+                        k=1e3,
+                        M=1e6,
+                        g=1e9,
+                        G=1e9)
+  elif replacements is False:
+    replacements = dict()
+  elif isinstance(replacement, dict):
+    pass
+  else:
+    raise ValueError("The allowd values for keyword 'replacements' are: 'None', 'False' or 'dict'")
+
   list_of_strings = listify(input2check)
   fmt = conv_fmt(pattern2match)
 
@@ -1014,9 +1466,36 @@ def extract_value_from_strings(input2check, pattern2match, output_fcn=str,
   # get the strings
   value_strings = [res.group() if res is not None else notfoundvalue for res in search_results]
 
-  # make the values
-  values = [output_fcn(valstr) if valstr is not None else notfoundvalue
-            for valstr in value_strings]
+  if output_fcn is not None:
+    values = [output_fcn(valstr) if valstr is not None else notfoundvalue
+              for valstr in value_strings]
+  else:
+    values = []
+    for valstr in value_strings:
+      if valstr.startswith('-') or valstr.startswith('+'):
+        valstr_ = valstr[1:]
+      else:
+        valstr_ = valstr
+      if valstr_.isnumeric():
+        value = float(valstr)
+      else:
+        # check against known decimal replacements
+        value = valstr
+        # check if there is anything to replace
+        for key, mult in replacements.items():
+          if valstr.find(key) > -1:
+            value = float(valstr.replace(key, '.'))*mult
+            break
+
+      if check_if_int:
+        if value.is_integer():
+          value = int(value)
+
+      # append to the list
+      values.append(value)
+
+  if output_type is not None:
+    values = [output_type(value) for value in values]
 
   if np.isscalar(input2check):
     output = values[0]
@@ -1759,18 +2238,29 @@ def calc_frequencies(nof_taps, fs, center_zero=True):
 
 
 def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=True,
-             dB=True, Plot=True, **plot_kwargs):
+             dB=True, Plot=True, yrange=None, **plot_kwargs):
   """
   get the spectrum of a signal
   """
+  plot_kwargs_ = dict(ax=None, ls='-', color='b')
+  plot_kwargs_.update(plot_kwargs)
+
+  figtitle = "Spectrum"
   signal = signal.reshape(-1)
   if nof_taps is None:
     nof_taps = signal.size
 
-  freqs = calc_frequencies(nof_taps, fs=fs, center_zero=center_zero)
+  freqs_unscaled = calc_frequencies(nof_taps, fs=fs, center_zero=center_zero)
 
-  spect = np.abs(np.fft.fft(signal, n=nof_taps))
+  # overwrite freqs_base by the scaled version
+  freqs, sidict = scale_by_si_prefix(freqs_unscaled, base_pref_on_what="max")
+
+  figtitle += ", {:d} taps".format(freqs.size)
+
+  spect_ = np.fft.fft(signal, n=nof_taps)
+  spect = np.abs(spect_)
   if center_zero:
+    figtitle += ", centered"
     spect = fftshift(spect)
 
   if isinstance(scaling, str):
@@ -1778,35 +2268,62 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
       sf = 1.
     elif scaling == 'per_sample':
       sf = nof_taps
+      figtitle += ", per sample"
     elif scaling == 'normalize':
       sf = np.abs(spect).max()
+      figtitle += ", normalized"
     else:
       raise NotImplementedError("The value for *scaling={}* is not implemented".format(scaling))
   else:
     sf = np.float_(scaling)
+    figtitle += ", {:0.1f} scaling".format(sf)
 
   spect /= sf
 
   if not full:
+    figtitle += ", half spectrum"
     nof_samples = freqs.size
-    freqs = freqs[:nof_samples//2]
-    spect = spect[:nof_samples//2]
+    if center_zero:
+      freqs = freqs[nof_samples//2 + 1:]
+      spect = spect[nof_samples//2 + 1:]
+    else:
+      freqs = freqs[:nof_samples//2]
+      spect = spect[:nof_samples//2]
+  else:
+    figtitle += ", full spectrum"
 
   if dB:
     spect = logmod(spect)
+    figtitle += ", logscale"
+    if scaling == 'normalize':
+      yscale = "Power [dBc]"
+    else:
+      yscale = "Power [dB]"
 
+    # calculate the yscaling
+    ymax = max(spect) + 3.
+    if yrange is not None:
+      ymin = ymax - yrange
+  else:
+    yscale = "Power [lin]"
+
+  ax = plot_kwargs_.pop('ax')
   if Plot:
     # plot the stuff
-    if 'ax' in plot_kwargs.keys():
-      ax = plot_kwargs.pop('ax')
-    else:
-      fig = plt.figure(figname('{:d}-point spectrum'.format(freqs.size)))
+
+    if ax is None:
+      fig = plt.figure(figname(figtitle))
       ax = fig.add_subplot(111)
 
-    ax.plot(freqs, spect, 'b-', **plot_kwargs)
+    ax.plot(freqs, spect, **plot_kwargs_)
+    ax.set_title(figtitle)
+    ax.set_xlabel("Frequency [{:s}Hz]".format(sidict['sym']))
+    ax.set_ylabel(yscale)
+    if yrange is not None:
+      ax.set_ylim(top=ymax, bottom=ymin)
     plt.show(block=False)
 
-  return freqs, spect
+  return freqs_unscaled, fftshift(spect_), ax
 
 
 def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
@@ -2990,7 +3507,7 @@ def logmod(x, multiplier=20):
   author: Joris Kampman, Thales NL, 2017
   '''
 
-  return multiplier * np.log10(np.abs(x))
+  return multiplier*np.log10(np.abs(x))
 
 
 def bracket(x):
@@ -3430,22 +3947,88 @@ def exp_fast(data):
   return ne.evaluate('exp(data)')
 
 
-def qplot_(*args, **kwargs):
+def find_blob_edges(blob, threshold=1., return_mask=False):
   """
-  a quicklook plot which will create a new figure
+  blob must be convex
   """
-  return qplot(*args, ax=None, **kwargs)
+  blob_floats = blob.astype(float)
+  blob_floats[blob_floats < threshold] = 0.
+  blob_floats[blob_floats >= threshold] = 1.
+
+  mask = np.ones((3, 3), dtype=float)
+
+  # do 2D convolution
+  convres = convolve2d(blob_floats, mask, 'same')
+
+  # set points that are not edges to zero
+  convres[convres < 5] = 0.
+  convres[convres > 7] = 0.
+  convres[convres > 0] = 1.
+
+  tf_edges = convres.astype(bool)
+
+  if return_mask:
+    retval = tf_edges
+  else:
+
+    # get the order of the pixels to prevent jumping edges
+    shp = blob.shape
+    Rgrid, Cgrid = np.mgrid[:shp[0], :shp[1]]
+
+    Xgrid = Cgrid - np.mean(Cgrid)
+    Ygrid = Rgrid - np.mean(Rgrid)
+
+    radii = np.sqrt(Xgrid**2 + Ygrid**2)
+    phs = np.arctan2(Ygrid, Xgrid)
+
+    z_valids = (radii*np.exp(1j*phs))[tf_edges]
+    is_fnd = -1*np.ones(tf_edges.sum(), dtype=int)
+
+    # find the minimum angle
+    ifnd = np.argmin(np.abs(np.angle(z_valids)))
+    is_fnd[ifnd] = 0
+
+    # loop for all
+    for ipt in range(1, tf_edges.sum()):
+      is_unused = np.argwhere(is_fnd == -1).ravel()
+
+      # find the closest point
+      z_valids_unused = z_valids[is_unused]
+      iiclosest = np.argmin(np.abs(z_valids_unused - z_valids[is_fnd.argmax()]))
+      ifnd = is_unused[iiclosest]
+      is_fnd[ifnd] = ipt
+
+    isort = np.argsort(is_fnd)
+
+    # get the indices that belonw to the edge in coordinates
+    edge_coords = np.argwhere(tf_edges)[isort, :]
+    edge_coord_lots = [(r, c) for r, c in edge_coords]
+
+    retval = edge_coord_lots
+
+  return retval
 
 
-def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
+def qplot(*args, center=False, aspect=None, rot_deg=0.,
           mark_endpoints=False, endpoints_as_text=False, endpoint_color='k', return_kid=False,
-          **plotkwargs):
+          split_complex=True, colors='jetmodb', legend_loc='upper right', figtitles=None,
+          txt_rot='auto', **plotkwargs):
   """
   a quicklook plot
 
   positional arguments:
   ----------------------
-  args : <see matplotlib.pyplot.plot>
+  ax: [ Axes | None | 'h' ], OPTIONAL, default=None
+      The axes in which the plots must be created. optiouns are:
+      - Axes object --> this will add the plot to an existing axes. plt.gca() also works
+      - None        --> a new plot will be created
+      - 'h'         --> the current plot will be held. Hence 'h' for 'hold' (similar to matlab)
+  args[1:] : <see matplotlib.pyplot.plot>
+             may be 1, 2 or 3 arguments:
+             - 1 argument  --> The data for the vertical axis OR 2D complex valued data
+             - 2 arguments --> Both the horizontal and vertical axis data. In case both arguments
+                               are complex.. well, nothing's been implemented for that now!!
+             - 3 arguments --> data for both axis, plus a formatting string, e.g., 'b.-'
 
   keyword arguments:
   ------------------
@@ -3467,6 +4050,13 @@ def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
   endpoints_as_text : bool, default=False
                       Whether to replace the endpoint markers (square and circle) by the texts
                       'start' and 'end', this might be beneficial in some cases
+  endpoint_color : [ str| 3-array-like ], default='k'
+                   The color of the endpoints
+  return_kid : bool, default=False
+               whether or not to not only return the axes, but also the line objects themselves
+  split_complex : bool, default=False
+                  Whether or not to split the data into 2 graphs: the real and complex valued data
+
   **kwargs : dictionary
              keyword arguments to be given to the underlying matplotlib.pyplot.plot function
              to which this function is a wrapper
@@ -3483,80 +4073,167 @@ def qplot(*args, ax="hold", center=False, aspect='auto', rot_deg=0.,
     kwargs = dict(marker='.', linestyle='-')
   kwargs.update(**plotkwargs)
 
-  # plot in current figure
-  if ax is None:
-    fig, ax = plt.subplots(1, 1)
+  # if first argument is an axes --> use this axes
+  if isinstance(args[0], plt.Axes):
+    ax = args[0]
+    args = args[1:]
+  # else: if first argument is None --> new axes
+  elif args[0] is None:
+    _, ax = plt.subplots(1, 1)
+    args = args[1:]
+  # elif: first argument is 'h' --> use the current axes
+  elif isinstance(args[0], str) and args[0].startswith('h'):
+    ax = plt.gca()
+    args = args[1:]
+  # nothing given --> new axes
   else:
-    if isinstance(ax, str) and ax.endswith("hold"):
-      ax = plt.gca()
+    _, ax = plt.subplots(1, 1)
 
   # set the aspect ratio ('auto' and 'equal' are accepted)
-  ax.set_aspect(aspect)
+  if aspect is not None:
+    ax.set_aspect(aspect)
 
-  if len(args) == 1:
-    args_ = ()
-    if np.iscomplex(args[0]).sum() > 0:
-      xs = np.real(args[0])
-      ys = np.imag(args[0])
-    else:
-      ys = args[0]
-      xs = np.arange(len(ys))
-  elif len(args) >= 2:
-    # where does the string start
-    if isinstance(args[1], str):
-      iarg_start = 1
-    else:
-      iarg_start = 2
+  # check if there is an formatting argument given, this is always the last one
+  if isinstance(args[-1], str):
+    format_str_list = [args[-1]]
+    datalist = args[:-1]
 
-    args_ = args[iarg_start:]
-    if iarg_start == 1:
-      if np.iscomplex(args[0]).sum() > 0:
-        xs = np.real(args[0])
-        ys = np.imag(args[0])
-      else:
-        ys = args[0]
-        if np.isscalar(ys):
-          xs = 0
-        else:
-          xs = np.arange(len(ys))
-    elif iarg_start == 2:
-      xs = args[0]
-      ys = args[1]
+  else:
+    format_str_list = []
+    datalist = args
+
+  # make the xs and ys (list of) vectors
+  if len(datalist) == 1:
+    xdata = None
+    ydata = datalist[0]
+  # there are 2 separate x and y sets given
+  elif len(datalist) == 2:
+    xdata = args[0]
+    ydata = args[1]
+  else:
+    raise ValueError("There are more than 2 input arguments given ({})".format(len(args)))
+
+  if np.isscalar(ydata):
+    ydata = [ydata]
+
+  if np.isscalar(xdata):
+    xdata = [xdata]
+
+  # check if ydata is a list of data or simply plain data
+  is_multiple = isinstance(ydata[0], (list, tuple, np.ndarray))
+  # make multiple of 1 if not multiple
+  if not is_multiple:
+    ydata = [ydata]
+
+  # adjust the xdata if still None
+  if xdata is None:
+    xdata = np.arange(len(ydata[0]))
+
+  # check if the xdata is a list too
+  if not isinstance(xdata[0], (list, tuple, np.ndarray)):
+    xdata = [xdata]*len(ydata)
+
+  # set the text rotation in case the xdata is strings
+  if txt_rot.startswith('auto'):
+    if isinstance(xdata[0][0], str):
+      txt_rot = 45.
+    else:
+      txt_rot = 0.
+
+  # special treatment for complex data
+  is_complex = np.any([np.iscomplex(ys).sum() > 0 for ys in ydata])
+  if is_complex:
+    # split the real and imaginary parts into separate graphs
+    xdata_ext = []
+    ydata_ext = []
+    if split_complex:
+      for xs, ys in zip(xdata, ydata):
+        xdata_ext.append(xs)
+        ydata_ext.append(np.real(ys))
+        xdata_ext.append(xs)
+        ydata_ext.append(np.imag(ys))
+    else:
+      for ys in ydata:
+        xdata_ext.append(np.real(ys))
+        ydata_ext.append(np.imag(ys))
+    # overwrite the existing data sets
+    xdata = xdata_ext
+    ydata = ydata_ext
 
   if not np.isclose(rot_deg, 0.):
-    xs, ys = rot2D(xs, ys, np.deg2rad(rot_deg))
+    xdata_rot = []
+    ydata_rot = []
+    for xs, ys in zip(xdata, ydata):
+      xs, ys = rot2D(xs, ys, np.deg2rad(rot_deg))
+      xdata_rot.append(xs)
+      ydata_rot.append(ys)
+    xdata = xdata_rot
+    ydata = ydata_rot
 
-  xs = arrayify(xs)
-  ys = arrayify(ys)
-  if ys.ndim == 2:
-    color_cycler = cycler('color', jetmod(ys.shape[1], 'vector', bright=False))
-    ax.set_prop_cycle(color_cycler)
-  lobj = ax.plot(xs, ys, *args_, **kwargs)
+  # set the label if present
+  nof_plots = len(ydata)
+  if isinstance(colors, str):
+    if colors.startswith('jetmod'):
+      modifiers = colors[6:]
+      bright = True if 'b' in modifiers else False
+      invert = True if 'i' in modifiers else False
+      negative = True if 'n' in modifiers else False
+      interpolation = 'nearest' if '_' in modifiers else 'linear'
+    colors = jetmod(nof_plots, 'vector', bright=bright, invert=invert, negative=negative,
+                    interpolation=interpolation)
+  color_cycler = cycler('color', colors)
+  ax.set_prop_cycle(color_cycler)
+  label_list = listify(kwargs.pop('label')) if 'label' in kwargs else ['']*nof_plots
+  if is_complex and split_complex:
+    label_ext = []
+    for label in label_list:
+      label_ext.append("real({:s})".format(label))
+      label_ext.append("imag({:s})".format(label))
+    # place back into label list
+    label_list = label_ext
+
+  # how many plots to make?\
+  lobjs = []
+
+  for xs, ys, label in zip(xdata, ydata, label_list):
+    lobj = ax.plot(xs, ys, *format_str_list, label=label, **kwargs)[0]
+    lobjs.append(lobj)
 
   if center:
     center_plot_around_origin(ax=ax)
-    ax.plot(0, 0, 'k+', markersize=10, markeredgewidth=3)
+    # ax.plot(0, 0, 'k+', markersize=10, markeredgewidth=3)
 
   if mark_endpoints:
     if endpoint_color.startswith('match'):
       endpoint_color = lobj[0].get_color()
 
     if endpoints_as_text:
-      ax.text(xs.ravel()[0], ys.ravel()[0], 'start', fontsize=8, fontweight='bold', ha='center',
-              va='center', alpha=0.5, color=endpoint_color)
-      ax.text(xs.ravel()[-1], ys.ravel()[-1], 'end', fontsize=8, fontweight='bold', ha='center',
-              va='center', alpha=0.5, color=endpoint_color)
+      for xs, ys in zip(xdata, ydata):
+        ax.text(xs[0], ys[0], 'start', fontsize=8, fontweight='bold', ha='center',
+                va='center', alpha=0.5, color=endpoint_color)
+        ax.text(xs[-1], ys[-1], 'end', fontsize=8, fontweight='bold', ha='center',
+                va='center', alpha=0.5, color=endpoint_color)
     else:
-      ax.plot(xs.ravel()[0], ys.ravel()[0], 's', mfc='none', markersize=10, markeredgewidth=2,
-              alpha=0.5, color=endpoint_color)
-      ax.plot(xs.ravel()[-1], ys.ravel()[-1], 'o', mfc='none', markersize=10, markeredgewidth=2,
-              alpha=0.5, color=endpoint_color)
+      for xs, ys in zip(xdata, ydata):
+        ax.plot(xs[0], ys[0], 's', mfc='none', markersize=10, markeredgewidth=2,
+                alpha=0.5, color=endpoint_color)
+        ax.plot(xs[-1], ys[-1], 'o', mfc='none', markersize=10, markeredgewidth=2,
+                alpha=0.5, color=endpoint_color)
 
+  is_label_present = np.alltrue([label is not None for label in label_list])
+  if is_label_present:
+    ax.legend(loc=legend_loc)
+
+  if figtitles is not None:
+    add_figtitles(figtitles)
+
+  # rotate the xtick labels
+  plt.xticks(rotation=txt_rot, ha='right')
   plt.show(block=False)
   plt.draw()
 
   if return_kid:
-    return ax, lobj
+    return ax, lobjs
   else:
     return ax
 
@@ -3569,10 +4246,7 @@ def center_plot_around_origin(ax=None, aspect='equal'):
   if ax is None:
     ax = plt.gca()
 
-  xbound = ax.get_xbound()
-  ybound = ax.get_ybound()
-
-  dev = np.max([*np.abs(xbound), *np.abs(ybound)])
+  dev = np.max([*np.abs(ax.dataLim.max), *np.abs(ax.dataLim.min), 0.])
 
   ax.set_xlim(left=-dev, right=dev)
   ax.set_ylim(top=dev, bottom=-dev)
@@ -3909,10 +4583,17 @@ def ind2rgba(arr, cmap, alphas=None):
     return arr_rgb
 
 
-def short_string(str_, maxlength, what2keep='edges', placeholder="..."):
+def short_string(str_, maxlength=None, what2keep='edges', placeholder="..."):
   """
   shorten a long string to keep only the start and end parts connected with dots
   """
+  # if no length is given, take the terminal size
+  if maxlength is None:
+    maxlength = os.get_terminal_size().columns
+  # if <0, deduct the amount from the maximum terminal size
+  if maxlength < 0:
+    maxlength += os.get_terminal_size().columns
+
   strlen = len(str_)
   pllen = len(placeholder)
   if strlen <= maxlength:
