@@ -34,8 +34,6 @@ import pandas as pd
 import inspect
 from itertools import cycle
 import time
-from cycler import cycler
-from matplotlib.gridspec import GridSpec
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -725,10 +723,10 @@ def remove_empty_axes(fig):
   """
   remove empty axes
   """
-  axs_sub = listify(fig.axes)
+  axs = listify(fig.axes)
 
   artists_to_check = ['lines', 'collections', 'images']
-  for ax in axs_sub:
+  for ax in axs:
     nof_artists_in_ax = 0
     for art in artists_to_check:
       nof_artists_in_ax += len(getattr(ax, art))
@@ -911,129 +909,79 @@ def format_matdata_as_dataframe(matdata, fields_to_keep=None):
   return datadf
 
 
-def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True,
-                              unique=False, sort=False):
+def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True):
   """
   interpret a sequence string like '0, 10, 3' or '10.4' or 10:0.1:20'
   """
   # split the string
-  csv_parts = [elm.strip() for elm in seqstr.split(",")]
-
-  seq_values_list = []
-  for csv_part in csv_parts:
-    pos_parts_list = csv_part.split(':')
-    if len(pos_parts_list) == 1:
-      # see if they are separate values
-      seq_values = np.array([typefcn(pos.strip()) for pos in csv_part.strip().split(',')])
-    elif len(pos_parts_list) == 2:
-      if pos_parts_list[0] == '':
-        pos_parts_list[0] = '0.'
-      begin_, end_ = [typefcn(val) for val in pos_parts_list]
-      incr_angle = 1.
-      seq_values = np.arange(begin_, end_+0.001, incr_angle)
-    elif len(pos_parts_list) == 3:
-      begin_, incr_, end_ = [typefcn(val) for val in pos_parts_list]
-      seq_values = np.arange(begin_, end_+0.001, incr_)
-    else:
-      raise ValueError("The values in the sequence '{:s}' cannot be determined"
-                       .format(csv_part))
-
-    seq_values_list += seq_values.tolist()
-
-  seq_values = np.array(seq_values_list)
-
-  if check_if_int:
-    is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
-    if is_int_seq:
-      seq_values = np.int_(seq_values)
-
-  if unique:
-    seq_values = np.unique(seq_values)
+  pos_parts_list = seqstr.split(':')
+  if len(pos_parts_list) == 1:
+    # see if they are separate values
+    seq_values = np.array([typefcn(pos.strip()) for pos in seqstr.strip().split(',')])
+  elif len(pos_parts_list) == 2:
+    begin_, end_ = [typefcn(val) for val in pos_parts_list]
+    incr_angle = 1.
+    seq_values = np.arange(begin_, end_+0.001, incr_angle)
+  elif len(pos_parts_list) == 3:
+    begin_, incr_, end_ = [typefcn(val) for val in pos_parts_list]
+    seq_values = np.arange(begin_, end_+0.001, incr_)
   else:
-    if sort:
-      seq_values = np.sort(seq_values)
+    raise ValueError("The values in the sequence '{:s}' cannot be determined"
+                     .format(seqstr))
+
+  if isinstance(typefcn, (np.float_, np.float, float)):
+    if check_if_int:
+      is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
+      if is_int_seq:
+        seq_values = np.int_(seq_values)
 
   return seq_values
 
 
-def find_inliers(data, offset=1.5, axis=None, scheme='iqr'):
+def find_outliers(data, sf_iqr=1.5, axis=None):
   """
   find the outliers according to the 1.5 iqr method
   """
-  if scheme is None:
-    tf_inliers = np.ones_like(data, dtype=np.bool_)
-    return tf_inliers, -np.inf, np.inf
-
   if data.ndim > 1:
     if axis is None:
-      output, thl, thh = find_inliers(data.ravel(), offset=offset, axis=None, scheme=scheme)
+      output = find_outliers(data.ravel(), sf_iqr=sf_iqr, axis=None)
       output = np.reshape(output, data.shape)
-      return output, thl, thh
+      return output
     else:
       # move the iteration axis to the first index
       datamod = np.moveaxis(data, axis, 0)
       datamod2 = datamod.reshape(datamod.shape[0], np.prod(datamod.shape[1:])).T
       # datamod2 = np.moveaxis(datamod, 0, 1)
       resultveclist = []
-      thllist = []
-      thhlist = []
       for datavec in datamod2:
-        resultvec, thl, thh = find_inliers(datavec, offset=offset, axis=0, scheme=scheme)
+        resultvec = find_outliers(datavec, sf_iqr=sf_iqr, axis=0)
         resultveclist.append(resultvec)
-        thllist.append(thl)
-        thhlist.append(thh)
 
       # reshape
       results = np.array(resultveclist)
+
       results = np.moveaxis(results.T, 0, axis)
 
-      thls = np.array(thllist)
-      thhs = np.array(thhlist)
-
-      return results, thls, thhs
+      return results
 
   if np.iscomplex(data).sum() >= 1:
     data_ = np.abs(data)
   else:
     data_ = data.copy()
 
-  if scheme == 'iqr':
-    q1 = np.percentile(data_, 25)
-    q3 = np.percentile(data_, 75)
-    iqr = q3 - q1
+  q1 = np.percentile(data_, 25)
+  q3 = np.percentile(data_, 75)
+  iqr = q3 - q1
 
-    # determine low and high thresholds
-    thres_low = q1 - offset*iqr
-    thres_high = q3 + offset*iqr
+  # determine low and high thresholds
+  thres_low = q1 - sf_iqr*iqr
+  thres_high = q3 + sf_iqr*iqr
 
-    # test against thresholds
-  elif scheme == 'offset':
-    # determine thresholds low and high
-    if np.isscalar(offset):
-      os_low = np.abs(offset)
-      os_high = np.abs(offset)
-    else:
-      os_low, os_high = np.abs(offset)
-
-    med = np.median(data_)
-    thres_low = med - os_low
-    thres_high = med + os_high
-  else:
-    raise NotImplementedError("The scheme given ({}) is not implemented (yet)".format(scheme))
-
-  # determine the inliers and outliers
+  # test against thresholds
   tf_inliers = (data_ >= thres_low)*(data_ <= thres_high)
+  tf_outliers = ~tf_inliers
 
-  return tf_inliers, thres_low, thres_high
-
-
-def find_outliers(data, offset=1.5, axis=None, scheme='iqr'):
-  """
-  find the inliers. This is a simple wrapper around *find_outliers*
-  """
-  tf_inliers, thl, thh = find_inliers(data, offset=offset, axis=axis, scheme=scheme)
-
-  return ~tf_inliers, thl, thh
+  return tf_outliers
 
 
 def dec2hex(decvals, nof_bytes=None):
@@ -1125,61 +1073,35 @@ def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None,
   return ax
 
 
-def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right', href=None,
-                   ha='left', va='top', left_align_lines=True, boxcolor=[0.9, 0.9, 0.99],
-                   boxalpha=1., fontweight='normal', fontsize=8, fontname='monospace',
-                   fontcolor='k'):
+def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=None,
+                   ha='right', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
+                   fontweight='normal', fontsize=8, fontname='monospace', fontcolor='k'):
   """
   add text inset
   """
-  # get reference (figure or axes)
-  if href is None:
-    href = plt.gca()
-
-  # get the maximum distances
-  if isinstance(href, plt.Figure):
-    xleft = 0.02
-    xright = 0.98
-    xcenter = 0.5
-    ytop = 0.98
-    ycenter = 0.5
-    ybottom = 0.02
-  elif isinstance(href, plt.Axes):
-    xleft = 0.01
-    xright = 0.99
-    xcenter = 0.5
-    ytop = 0.99
-    ycenter = 0.5
-    ybottom = 0.01
-    # xleft, xright = href.get_xlim()
-    # xcenter = (xright + xleft)/2
-    # ytop, ybottom = href.get_ylim()
-    # ycenter = (ytop + ybottom)/2
-
   # get the positions
+  xpos = x
+  ypos = y
   if xpos is None:
     if loc.lower().find("right") > -1:
-      xpos = xright
+      xpos = 0.98
     elif loc.lower().find("left") > -1:
-      xpos = xleft
-    else:
-      xpos = xcenter
+      xpos = 0.02
 
   if ypos is None:
-    if loc.lower().find("upper") > -1 or loc.lower().find("top") > -1:
-      ypos = ytop
-      va = 'top'
-    elif loc.lower().find("lower") > -1 or loc.lower().find("bottom") > -1:
-      ypos = ybottom
-      va = 'bottom'
-    else:
-      ypos = ycenter
-      va = 'center'
+    if loc.lower().find("upper") or loc.lower().find("top"):
+      ypos = 0.98
+    elif loc.lower().find("lower") or loc.lower().find("bottom"):
+      ypos = 0.02
+
+  # get axees
+  if ax is None:
+    ax = plt.gca()
 
   # info is on the right side, calculate the offset
   if ha == 'right' and left_align_lines:
     # determine the size of the box
-    nof_chars_right_box = max([len(str_) for str_ in text_inset_strs_list]) + 1
+    nof_chars_right_box = max([len(str_) for str_ in text_inset_strs_list])
     text_inset_strs_list = ['{{:<{:d}s}}'.format(nof_chars_right_box).format(str_) for str_ in
                             text_inset_strs_list]
 
@@ -1187,14 +1109,14 @@ def add_text_inset(text_inset_strs_list, xpos=None, ypos=None, loc='upper right'
   text_inset_text = '\n'.join(text_inset_strs_list)
 
   # add the text to the axes
-  bbox = dict(boxstyle="Round, pad=0.3", ec='k', fc=boxcolor, alpha=boxalpha)
-  txtref = href.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
-                     fontname=fontname, ha=ha, va=va, bbox=bbox, color=fontcolor,
-                     transform=href.transAxes)
+  ax.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
+          fontname=fontname, ha=ha, va=va, bbox=dict(boxstyle="Round, pad=0.2", ec='k',
+                                                     fc=boxcolor),
+          transform=ax.transAxes, color=fontcolor)
 
   plt.draw()
 
-  return txtref
+  return ax
 
 
 def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fill=False,
@@ -1635,9 +1557,6 @@ def pconv(dirname):
   for wkey, sub in win2lin.items():
     dirname = dirname.replace(wkey, sub)
     dirname = dirname.replace(wkey.upper(), sub)
-
-  if not dirname.endswith(os.sep):
-    dirname += os.sep
 
   return dirname
 
@@ -2157,6 +2076,23 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
   filename = filedialog.asksaveasfilename(defaultextension=defaultextension,
                                           initialdir=initialdir, title=title,
                                           initialfile=initialfile, filetypes=filetypes)
+
+  # if check_exists:
+  #   if os.path.exists(filename):
+  #     answer = dinput('The file already exists. Overwrite? [y/n]', 'y')
+  #     if answer[0].lower() == 'y':
+  #       # remove
+  #       os.remove(filename)
+  #       break
+  #     elif answer[0].lower() == 'n':
+  #       # do nothing and re-ask for filename
+  #       pass
+  #     else:
+  #       print('answer given ({}) not understood. Please select `y` or `n`'.format(answer))
+  #   else:
+  #     break
+  # else:
+  #   break
 
   return filename
 
@@ -3096,9 +3032,6 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
 
     elif types[irow] == str:
       tkvar.append(tk.StringVar(master, value=defaults[irow]))
-
-    elif types[irow] in (bool, np.bool_):
-      tkvar.append(tk.BooleanVar(master, value=defaults[irow]))
 
     else:
       raise ValueError('The type "{}" is not recognized'.format(types[irow]))
@@ -4068,9 +4001,9 @@ def qplot(*args, center=False, aspect=None, rot_deg=0.,
   ax : axes
        The axes object containing the plots
   """
-  kwargs = {}
+  kwargs = dict()
   if not isinstance(args[-1], str):
-    kwargs = dict(marker='.', linestyle='-')
+    kwargs = dict(marker='.', color='b', linestyle='-')
   kwargs.update(**plotkwargs)
 
   # if first argument is an axes --> use this axes
