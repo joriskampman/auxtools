@@ -3394,8 +3394,10 @@ def db(linval):
 
   Author: Joris Kampman, Thales NL, 2017
   '''
+  with np.errstate(divide='ignore'):
+    output = 10*np.log10(np.abs(linval))
 
-  return 10*np.log10(np.abs(linval))
+  return output
 
 
 def lin(dbval, mult=10):
@@ -3418,7 +3420,7 @@ def lin(dbval, mult=10):
   jktools.logmod : converts linear values to logmods
   '''
 
-  return 10**(dbval / mult)
+  return 10**(dbval/mult)
 
 
 def logmod(x, multiplier=20):
@@ -3450,8 +3452,11 @@ def logmod(x, multiplier=20):
 
   author: Joris Kampman, Thales NL, 2017
   '''
-
-  return multiplier*np.log10(np.abs(x))
+  # catch the runtime warning
+  with np.errstate(divide='ignore'):
+    output = multiplier*np.log10(np.abs(x))
+  
+  return output
 
 
 def bracket(x):
