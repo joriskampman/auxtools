@@ -21,11 +21,9 @@ from scipy.fftpack import fftshift
 from scipy.signal import find_peaks, convolve2d
 import os # noqa
 import sys # noqa
-import warnings as wn # noqa
 import warnings
 import datetime as dt
 import pdb  # noqa
-from warnings import warn
 from matplotlib.colors import to_rgb
 from PyQt5.QtWidgets import QApplication
 from matplotlib.patches import Ellipse
@@ -34,6 +32,9 @@ import pandas as pd
 import inspect
 from itertools import cycle
 import time
+from cycler import cycler
+from matplotlib.gridspec import GridSpec
+
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -89,7 +90,7 @@ confidence_table.interpolate(method='cubic', inplace=True)
 
 
 # update the display of warnings
-def formatted_warning(message, category, filename, lineno, file=None, line=None):
+def _formatted_warning(message, category, filename, lineno, file=None, line=None):
   strbuf = "  "
   strline = "-"*30
   message = ("\"" + str(message).strip() + "\"").replace("\n", "\n" + strbuf + " ")
@@ -103,7 +104,16 @@ def formatted_warning(message, category, filename, lineno, file=None, line=None)
          .format(str_top, message, "-"*nchars_top))
   return fmt
 
-warnings.formatwarning = formatted_warning
+
+def set_warnings_format():
+  """
+  set the format of the warnings to what I am accustomed to
+  """
+  print("overwriting warnings format .. ", end="")
+  warnings.formatwarning = _formatted_warning
+  print("done!")
+
+  return None
 
 
 # CLASSES
@@ -385,8 +395,8 @@ def break_text(text, maxlen, glue=None, silence_warning=False, print_=False):
 
   if not silence_warning:
     if nof_too_long_parts > 0:
-      warn("The broken text contains {:d} parts that exceed {:d} characters"
-           .format(nof_too_long_parts, nof_chars), category=UserWarning)
+      warnings.warn("The broken text contains {:d} parts that exceed {:d} characters"
+                    .format(nof_too_long_parts, nof_chars), category=UserWarning)
 
   output = str_list
   if glue is not None:
@@ -1075,7 +1085,8 @@ def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None,
 
 def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=None,
                    ha='right', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
-                   fontweight='normal', fontsize=8, fontname='monospace', fontcolor='k'):
+                   boxalpha=1., fontweight='normal', fontsize=8, fontname='monospace',
+                   fontcolor='k'):
   """
   add text inset
   """
@@ -1109,14 +1120,14 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=N
   text_inset_text = '\n'.join(text_inset_strs_list)
 
   # add the text to the axes
-  ax.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
-          fontname=fontname, ha=ha, va=va, bbox=dict(boxstyle="Round, pad=0.2", ec='k',
-                                                     fc=boxcolor),
-          transform=ax.transAxes, color=fontcolor)
+  txtobj = ax.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
+                   fontname=fontname, ha=ha, va=va,
+                   bbox=dict(boxstyle="Round, pad=0.2", ec='k', fc=boxcolor, alpha=boxalpha),
+                   transform=ax.transAxes, color=fontcolor)
 
   plt.draw()
 
-  return ax
+  return txtobj
 
 
 def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fill=False,
@@ -1245,8 +1256,8 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
                        ":" + fmt.format(maxval) + sfx)
       return output_string
     else:
-      warn("This list cannot be compressed in min:step:max, since there is not a single step",
-           category=UserWarning)
+      warnings.warn("This list cannot be compressed in min:step:max, "
+                    + "since there is not a single step", category=UserWarning)
 
   # if not compressed or compressible (after a warning)
   fmtlist = list2glue.copy()
@@ -1713,8 +1724,8 @@ def get_closest_index(value_wanted, values, suppress_warnings=False):
     # get the closest
     ifnd = np.argmin(np.abs(values - value_wanted)).ravel()[0]
     if not suppress_warnings:
-      warn("There is no `exact` match for value = {}. Taking the closest value = {}".
-           format(value_wanted, values[ifnd]))
+      warnings.warn("There is no `exact` match for value = {}. Taking the closest value = {}"
+                    .format(value_wanted, values[ifnd]))
 
   return ifnd
 
@@ -4003,7 +4014,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0.,
   """
   kwargs = dict()
   if not isinstance(args[-1], str):
-    kwargs = dict(marker='.', color='b', linestyle='-')
+    kwargs = dict(marker='.', linestyle='-')
   kwargs.update(**plotkwargs)
 
   # if first argument is an axes --> use this axes
@@ -4114,17 +4125,19 @@ def qplot(*args, center=False, aspect=None, rot_deg=0.,
       interpolation = 'nearest' if '_' in modifiers else 'linear'
     colors = jetmod(nof_plots, 'vector', bright=bright, invert=invert, negative=negative,
                     interpolation=interpolation)
-  color_cycler = cycler('color', colors)
-  ax.set_prop_cycle(color_cycler)
+  # color_cycler = cycle(colors)
+
   label_list = listify(kwargs.pop('label')) if 'label' in kwargs else ['']*nof_plots
   if is_complex and split_complex:
     label_ext = []
+    colors = ['r', 'b']
     for label in label_list:
       label_ext.append("real({:s})".format(label))
       label_ext.append("imag({:s})".format(label))
     # place back into label list
     label_list = label_ext
 
+  ax.set_prop_cycle(color=colors)
   # how many plots to make?\
   lobjs = []
 
@@ -4683,11 +4696,11 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
           # find shortest
           isort = np.argsort([len(elm) for elm in list2search_fnd])
           output = arrayify(output)[isort[:nreq]].tolist()
-          warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
+          warnings.warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
                format(ifnd.size, nreq), category=ShortestElementTakenWarning)
         else:
           output = np.array([])
-          warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware".
+          warnings.warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware".
                format(ifnd.size, nreq), category=EmptyListReturnedWarning)
 
   return output
@@ -4698,7 +4711,7 @@ def data_scaling(data, minval=0., maxval=1., func='linear'):
   Scale the data accurding to some minimum and maximum value. Default is a bracket between 0 and 1
   """
   if not isinstance(data, np.ndarray):
-    warn("The data type will be transformed to an array")
+    warnings.warn("The data type will be transformed to an array")
     data = arrayify(data)
 
   # scale to unit interval
@@ -5532,3 +5545,7 @@ def strip_sep_from_string(text, sep='_'):
   _text_ = text_[:-1] if text_.endswith(sep) else text_
 
   return _text_
+
+
+# set the warnings format
+set_warnings_format()
