@@ -2190,7 +2190,7 @@ def calc_frequencies(nof_taps, fs, center_zero=True):
 
 
 def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=True,
-             dB=True, Plot=True, yrange=None, **plot_kwargs):
+             dB=True, qplot=True, yrange=None, **plot_kwargs):
   """
   get the spectrum of a signal
   """
@@ -2260,7 +2260,7 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
     yscale = "Power [lin]"
 
   ax = plot_kwargs_.pop('ax')
-  if Plot:
+  if qplot:
     # plot the stuff
 
     if ax is None:
@@ -2279,7 +2279,7 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
 
 
 def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
-                              max_nof_peaks=None, min_rel_height_db=10, Plot=False, **plotkwargs):
+                              max_nof_peaks=None, min_rel_height_db=10, qplot=False, **plotkwargs):
   """
   find the frequencies in the spectrum of a signal
 
@@ -2298,7 +2298,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
                       The minimimum relative height from the main spectral frequency above which
                       additional peaks can be found. the sign is of no importance and will be
                       corrected for
-  Plot : bool, default=False
+  qplot : bool, default=False
          Whether to plot the spectrum and the peaks superimposed
   scaling : [ 'default' | 'normalize' | 'per_sample' ], default='default'
                  The fourier transform scaling. These are:
@@ -2332,7 +2332,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
 
   signal_unbias = signal - np.mean(signal)
   freqs, Ydb_debias = spectrum(signal_unbias, fs=fs_, center_zero=False, scaling='default',
-                               full=False, Plot=False, dB=True)
+                               full=False, qplot=False, dB=True)
 
   # calculate the minimum distance between samples
   dP_per_sample = fs_/(2.*nof_samples)
@@ -2379,7 +2379,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
 
   peakvals -= offset
 
-  if Plot:
+  if qplot:
     if 'ax' in plot_kwargs.keys():
       ax = plot_kwargs['ax']
     else:
@@ -2397,7 +2397,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
         ax.set_ylabel("Power [dB]")
 
     xs, ys = spectrum(signal, fs=fs_, center_zero=False, scaling=scaling, full=False,
-                      dB=True, Plot=False)
+                      dB=True, qplot=False)
 
     ax.plot(xs, Ydb_debias - offset, 'k--')
     ax.plot(xs, ys, 'b-')
@@ -3963,7 +3963,7 @@ def find_blob_edges(blob, threshold=1., return_mask=False):
   return retval
 
 
-def qplot(*args, center=False, aspect=None, rot_deg=0.,
+def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
           mark_endpoints=False, endpoints_as_text=False, endpoint_color='k', return_kid=False,
           split_complex=True, colors='jetmodb', legend_loc='upper right', figtitles=None,
           txt_rot='auto', **plotkwargs):
@@ -4025,6 +4025,9 @@ def qplot(*args, center=False, aspect=None, rot_deg=0.,
   kwargs = dict()
   if not isinstance(args[-1], str):
     kwargs = dict(marker='.', linestyle='-')
+
+  if thin:
+    kwargs.update(alpha=0.5, markersize=0.5, lw=0.5)
   kwargs.update(**plotkwargs)
 
   # if first argument is an axes --> use this axes
