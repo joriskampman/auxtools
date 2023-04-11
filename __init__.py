@@ -53,31 +53,31 @@ T0 = 290
 # 1: use for most cases (kg, meters,...)
 # 2: specific cases (hectopascal comes to mind)
 # 3: don't know any case for now
-si_prefixes = {-30: dict(name="one quintillionth", prefix="quecto", sym='q', use_level=0),
-               -27: dict(name="one quadrilliardth", prefix="ronto", sym='r', use_level=0),
-               -24: dict(name="one quadrillionth", prefix="yocto", sym='y', use_level=0),
-               -21: dict(name="one trilliardth", prefix="zepto", sym='z', use_level=0),
-               -18: dict(name="one trillionth", prefix="atto", sym='a', use_level=0),
-               -15: dict(name="one billiardth", prefix="femto", sym='f', use_level=0),
-               -12: dict(name="one billionth", prefix="pico", sym='p', use_level=0),
-               -9: dict(name="one milliardth", prefix="nano", sym='n', use_level=0),
-               -6: dict(name="one millionth", prefix="micro", sym='u', use_level=0),
-               -3: dict(name="one thousandth", prefix="milli", sym='m', use_level=0),
-               -2: dict(name="one hundreth", prefix="centi", sym='c', use_level=1),
-               -1: dict(name="one tenth", prefix="deci", sym='d', use_level=1),
-               0: dict(name="one", prefix="", sym='', use_level=0),
-               +1: dict(name="ten", prefix="deca", sym='da', use_level=3),
-               +2: dict(name="hundred", prefix="hecto", sym='h', use_level=2),
-               +3: dict(name="thousand", prefix="kilo", sym='k', use_level=0),
-               +6: dict(name="million", prefix="mega", sym='M', use_level=0),
-               +9: dict(name="milliard", prefix="giga", sym='G', use_level=0),
-               +12: dict(name="billion", prefix="tera", sym='T', use_level=0),
-               +15: dict(name="billiard", prefix="peta", sym='P', use_level=0),
-               +18: dict(name="trillion", prefix="exa", sym='E', use_level=0),
-               +21: dict(name="trilliard", prefix="zetta", sym='Z', use_level=0),
-               +24: dict(name="quadrillion", prefix="yotta", sym='Y', use_level=0),
-               +27: dict(name="quadrilliard", prefix="ronna", sym='R', use_level=0),
-               +30: dict(name="quintillion", prefix="quetta", sym='Q', use_level=0)}
+si_prefixes = {-30: dict(sf=None, name="one quintillionth", prefix="quecto", sym='q', use_level=0),
+               -27: dict(sf=None, name="one quadrilliardth", prefix="ronto", sym='r', use_level=0),
+               -24: dict(sf=None, name="one quadrillionth", prefix="yocto", sym='y', use_level=0),
+               -21: dict(sf=None, name="one trilliardth", prefix="zepto", sym='z', use_level=0),
+               -18: dict(sf=None, name="one trillionth", prefix="atto", sym='a', use_level=0),
+               -15: dict(sf=None, name="one billiardth", prefix="femto", sym='f', use_level=0),
+               -12: dict(sf=None, name="one billionth", prefix="pico", sym='p', use_level=0),
+               -9: dict(sf=None, name="one milliardth", prefix="nano", sym='n', use_level=0),
+               -6: dict(sf=None, name="one millionth", prefix="micro", sym='u', use_level=0),
+               -3: dict(sf=None, name="one thousandth", prefix="milli", sym='m', use_level=0),
+               -2: dict(sf=None, name="one hundreth", prefix="centi", sym='c', use_level=1),
+               -1: dict(sf=None, name="one tenth", prefix="deci", sym='d', use_level=1),
+               0: dict(sf=None, name="one", prefix="", sym='', use_level=0),
+               +1: dict(sf=None, name="ten", prefix="deca", sym='da', use_level=3),
+               +2: dict(sf=None, name="hundred", prefix="hecto", sym='h', use_level=2),
+               +3: dict(sf=None, name="thousand", prefix="kilo", sym='k', use_level=0),
+               +6: dict(sf=None, name="million", prefix="mega", sym='M', use_level=0),
+               +9: dict(sf=None, name="milliard", prefix="giga", sym='G', use_level=0),
+               +12: dict(sf=None, name="billion", prefix="tera", sym='T', use_level=0),
+               +15: dict(sf=None, name="billiard", prefix="peta", sym='P', use_level=0),
+               +18: dict(sf=None, name="trillion", prefix="exa", sym='E', use_level=0),
+               +21: dict(sf=None, name="trilliard", prefix="zetta", sym='Z', use_level=0),
+               +24: dict(sf=None, name="quadrillion", prefix="yotta", sym='Y', use_level=0),
+               +27: dict(sf=None, name="quadrilliard", prefix="ronna", sym='R', use_level=0),
+               +30: dict(sf=None, name="quintillion", prefix="quetta", sym='Q', use_level=0)}
 
 confidence_table = pd.Series(
     index=[0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 0.95,
@@ -314,6 +314,7 @@ def scale_by_si_prefix(values, base_pref_on_what='max', max_use_level=0, scale_v
 
   # get the SI prefix dictionary
   si_prefix_dict = si_prefixes[fnd_powval]
+  si_prefix_dict['sf'] = np.power(10., fnd_powval)
 
   output_list = [si_prefix_dict]
   if scale_values:
@@ -777,6 +778,8 @@ def inspect_dict(dict_, searchfor=None):
     # if np.isscalar(value):
     if isinstance(value, (int, np.int_)):
       item_for_list = [key, 'integer', '{:d}'.format(value)]
+    elif isinstance(value, (complex, np.complex128)):
+      item_for_list = [key, 'complex', '{:f}'.format(value)]
     elif isinstance(value, str):
       item_for_list = [key, 'string', "'{:s}'".format(value.strip())]
     elif isinstance(value, (float, np.float_)):
@@ -865,6 +868,8 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
           item_for_list = [propname, 'string', "'{:s}'".format(prop.strip())]
         elif isinstance(prop, (float, np.float_)):
           item_for_list = [propname, 'float', '{:f}'.format(prop)]
+        elif isinstance(prop, (complex, np.complex128)):
+          item_for_list = [propname, 'complex', '{:f}'.format(prop)]
       elif isinstance(prop, dict):
         item_for_list = [propname, '{:d}-dict'.format(len(prop.keys())),
                          '{:s}'.format(print_list(list(prop.keys())))]
