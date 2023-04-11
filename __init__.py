@@ -2230,6 +2230,7 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
     sf = np.float_(scaling)
     figtitle += ", {:0.1f} scaling".format(sf)
 
+  spect_ /= sf
   spect /= sf
 
   if not full:
@@ -3109,10 +3110,7 @@ def rms(signal, axis=None):
     signal = signal.reshape(-1)
     axis = -1
 
-  if type(signal) is np.ndarray:
-    is_complex = signal.dtype is np.complex128
-  else:
-    raise TypeError('The type of the signal must be a numpy.ndarray')
+  is_complex = np.any(np.iscomplex(signal))
 
   if is_complex:
     i_rms = np.sqrt(np.nanmean(np.real(signal)**2, axis=axis))
