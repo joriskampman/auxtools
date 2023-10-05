@@ -1190,19 +1190,25 @@ def remove_empty_axes(fig):
   return None
 
 
-def inspector(obj2insp, searchfor=None):
+def inspector(obj2insp, searchfor=None, maxlen=150):
   """
   inspect an object
   """
   if isinstance(obj2insp, dict):
-    inspect_dict(obj2insp, searchfor=searchfor)
+    inspect_dict(obj2insp, searchfor=searchfor, maxlen=maxlen)
+  elif isinstance(obj2insp, list):
+    if isinstance(obj2insp[0], dict):
+      inspect_list_of_dicts(obj2insp, fields=searchfor, print_=True)
+    else:
+      inspect_object(ob2insp, searchfor=searchfor, maxlen=maxlen)
+
   else:
-    inspect_object(obj2insp, searchfor=searchfor)
+    inspect_object(obj2insp, searchfor=searchfor, maxlen=maxlen)
 
   return None
 
 
-def inspect_dict(dict_, searchfor=None):
+def inspect_dict(dict_, searchfor=None, maxlen=None):
   """
   show all key value pairs in a dictionary
   """
@@ -1216,14 +1222,14 @@ def inspect_dict(dict_, searchfor=None):
   for key in keys:
     value = dict_[key]
     # if np.isscalar(value):
-    if isinstance(value, (int, np.int_)):
+    if isinstance(value, (int, np.integer)):
       item_for_list = [key, 'integer', '{:d}'.format(value)]
-    elif isinstance(value, (complex, np.complex128)):
-      item_for_list = [key, 'complex', '{:f}'.format(value)]
+    elif isinstance(value, (complex, np.complexfloating)):
+      item_for_list = [key, 'complex', '{:3g}'.format(value)]
     elif isinstance(value, str):
       item_for_list = [key, 'string', "'{:s}'".format(value.strip())]
-    elif isinstance(value, (float, np.float_)):
-      item_for_list = [key, 'float', '{:f}'.format(value)]
+    elif isinstance(value, (float, np.floating)):
+      item_for_list = [key, 'float', '{:3g}'.format(value)]
     elif isinstance(value, bytes):
         item_for_list = [key, 'string', value.decode('utf-8')]
     elif isinstance(value, dict):
@@ -1231,13 +1237,13 @@ def inspect_dict(dict_, searchfor=None):
                        '{:s}'.format(print_list(list(value.keys())))]
     elif isinstance(value, np.ndarray):
       item_for_list = [key, '{}-array ({})'.format(value.shape, value.dtype),
-                       print_list(value.ravel())]
+                       print_list(value.ravel(), maxlen=maxlen, max_num_elms=3)]
     elif isinstance(value, list):
       item_for_list = [key, '{:d}-list ({})'.format(len(value), np.array(value).dtype),
-                       print_list(value)]
+                       print_list(value, maxlen=maxlen, max_num_elms=3)]
     elif isinstance(value, tuple):
       item_for_list = [key, '{:d}-tuple ({})'.format(len(value), np.array(value).dtype),
-                       print_list(listify(value))]
+                       print_list(listify(value), maxlen=maxlen, max_num_elms=3)]
     elif value is None:
       item_for_list = [key, 'None', 'None']
     elif isinstance(value, object):
@@ -1247,14 +1253,15 @@ def inspect_dict(dict_, searchfor=None):
       pdb.set_trace()
 
     list_to_print.append(item_for_list)
-    
-  print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
+
+  print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.',
+                   shorten_last_col=True, maxlen=maxlen)
 
   return None
 
 
 def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show_unders=False,
-                   show_dunders=False):
+                   show_dunders=False, maxlen='auto'):
   """
   show all class properties
   """
@@ -1292,7 +1299,8 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
       except ValueError:
         list_to_print.append([methname, '<no signature found>'])
 
-    print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
+    print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.',
+                     shorten_last_col=True, maxlen=maxlen)
 
   if show_props:
     print("\n")
@@ -1302,14 +1310,14 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
     for propname in props:
       prop = getattr(obj, propname)
       if np.isscalar(prop):
-        if isinstance(prop, (int, np.int_)):
+        if isinstance(prop, (int, np.integer)):
           item_for_list = [propname, 'integer', '{:d}'.format(prop)]
         elif isinstance(prop, str):
           item_for_list = [propname, 'string', "'{:s}'".format(prop.strip())]
-        elif isinstance(prop, (float, np.float_)):
-          item_for_list = [propname, 'float', '{:f}'.format(prop)]
-        elif isinstance(prop, (complex, np.complex128)):
-          item_for_list = [propname, 'complex', '{:f}'.format(prop)]
+        elif isinstance(prop, (float, np.floating)):
+          item_for_list = [propname, 'float', '{:3g}'.format(prop)]
+        elif isinstance(prop, (complex, np.complexfloating)):
+          item_for_list = [propname, 'complex', '{:3g}'.format(prop)]
       elif isinstance(prop, dict):
         item_for_list = [propname, '{:d}-dict'.format(len(prop.keys())),
                          '{:s}'.format(print_list(list(prop.keys())))]
@@ -1331,10 +1339,102 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
         pdb.set_trace()
 
       list_to_print.append(item_for_list)
-    print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.')
+    print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.',
+                     maxlen=maxlen, shorten_last_col=True)
   markerline("=", text=" End of class content ")
 
   return None
+
+
+def inspect_list_of_dicts(list_of_dicts, fields=None, print_=False, skip_None=True):
+  """
+  list the stream measurements from meas_hist
+  """
+  if fields is None:
+    fields = set()
+    for dict_ in list_of_dicts:
+      if dict_ is not None:
+        fields = fields.union(set(dict_.keys()))
+
+    fields = [*fields]
+
+  fields = listify(fields)
+
+  datadict = dict.fromkeys(fields)
+  for key in datadict.keys():
+    datadict[key] = []
+
+  strlist = [['index', *deepcopy(fields)]]
+  for ielm, dataelm in enumerate(list_of_dicts):
+    strlist_ = ['{:d}'.format(ielm)]
+    if dataelm is None and skip_None:
+      strlist_ += ['None'] + ['']*(len(fields) - 1)
+
+    else:
+      for field in fields:
+        val = dataelm[field]
+        if isinstance(val, (list, tuple, np.ndarray)):
+          typestr = "{}".format(type(val))
+          valstr = "({:d}x) {:s}".format(len(val), typestr[8:-2])
+        else:
+          if isinstance(val, (float, complex, np.complexfloating, np.floating)):
+            valstr = "{:3g}".format(val)
+          else:
+            valstr = "{}".format(val)
+        strlist_.append(valstr)
+        datadict[field].append(val)
+
+    # add the new 'row' to the list of listsc
+    strlist.append(strlist_)
+    # print(strlist)
+
+  if print_:
+    if not isinstance(strlist[0], list):
+      strlist = [strlist]
+
+    print_in_columns(strlist, maxlen=100, hline_at_index=1, what2keep='begin')
+
+  # check if there are multiple files
+  output = datadict
+  if len(datadict.keys()) == 1:
+    output = datadict[fields[0]]
+
+  return output
+
+
+def dictify(list_of_dicts, skip_None=True, make_array=True):
+  """
+  make a dictionary of a list of dicts
+  """
+  # get the keys
+  for dict_ in list_of_dicts:
+    # check if this dict is not None
+    if dict_ is not None:
+      keys = dict_.keys()
+      dict_of_lists = dict.fromkeys(keys)
+      for key in keys:
+        dict_of_lists[key] = []
+      break
+
+  # loop all dicts in the list
+  for dict_ in list_of_dicts:
+    # corner case: no dictionary but a single value
+    if dict_ is None:
+      if skip_None:
+        continue
+      else:
+        for key in keys:
+          dict_of_lists[key].append(None)
+    # else: a normal dict
+    else:
+      for key in keys:
+        dict_of_lists[key].append(dict_[key])
+
+  if make_array:
+    for key in keys:
+      dict_of_lists[key] = arrayify(dict_of_lists[key])
+
+  return dict_of_lists
 
 
 def format_matdata_as_dataframe(matdata, fields_to_keep=None):
