@@ -6,35 +6,41 @@ or other thales-based links
 """
 
 # import files
-import numpy as np
-import tkinter as tk
-from tkinter import Tk, filedialog
-import matplotlib.pyplot as plt
+# basics
 import os
-from scipy.interpolate import interp1d
-from scipy.special import factorial
-import numexpr as ne
-import re
-from copy import deepcopy
-
-from scipy.fftpack import fftshift
-from scipy.signal import find_peaks, convolve2d
-import os # noqa
-import sys # noqa
-import warnings
-import datetime as dt
-import pdb  # noqa
-from matplotlib.colors import to_rgb
-from PyQt5.QtWidgets import QApplication
-from matplotlib.patches import Ellipse
-import glob
+import numpy as np
+import matplotlib.pyplot as plt
 import pandas as pd
+import warnings
+import tkinter as tk
+import time
+
+# more exotic ones
+import re
+import datetime as dtm
+from copy import deepcopy
+import numexpr as ne
+import glob
 import inspect
 from itertools import cycle
-import time
-from cycler import cycler
-from matplotlib.gridspec import GridSpec
 
+# sub-modules for scipyt
+from scipy.interpolate import interp1d
+from scipy.special import factorial
+import scipy.signal.windows as spsw
+from scipy.fftpack import fftshift
+from scipy.signal import find_peaks, convolve2d
+
+# matplotlib sub-modules
+from matplotlib.colors import to_rgb
+from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Polygon
+import matplotlib.transforms as mtrans
+import matplotlib.dates as mdates
+
+# used sporadically
+import pdb  # noqa
+import sys # noqa
 
 # import all subfunctions
 from .cmaps import * # noqa
