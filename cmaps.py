@@ -23,7 +23,7 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 from numpy import ma
 
 __all__ = ['PercNorm', 'MaxContrastNorm', 'show_all_colormaps', 'jetmod', 'jetext',
-           'traffic_light', 'binary']
+           'traffic_light', 'binary', 'bgr', 'jetgray']
 
 
 # generate output based on inputs.. colormaps are defined per marker_array
@@ -147,7 +147,7 @@ def show_all_colormaps():
   import matplotlib.pyplot as plt
 
   nof_steps = 256
-  cmaps_to_show = ['jetmod', 'jetext', 'traffic_light', 'binary']
+  cmaps_to_show = ['jetmod', 'jetgray', 'jetext', 'traffic_light', 'binary', 'bgr']
   # cmaps_to_show = ['jetmod']
 
   mat = np.linspace(0, 1, nof_steps).reshape((1, -1))
@@ -359,6 +359,67 @@ def jetmod(nof_steps=256, istep=None, bright=False, invert=False, negative=False
                           name='jetmod')
 
 
+def jetgray(nof_steps=256, istep=None, bright=False, invert=False, negative=False,
+             interpolation='linear'):
+  '''
+  Modified 'jet' colormap. Yellow is removed for types like Geert Onstenk ...
+
+  Arguments:
+  ----------
+  nof_steps : int [optional]
+              The number of colors in the colormap
+  istep : {int, None, 'vector'} [optional]
+          Main switch to indicate what to return:
+           - an integer, results in a single RGB 3-tuple to be returned
+           - None, results in the creation of a colormap object which is returned
+           - 'vector', results in the return of a Nx3 ndarray of all RGB colors in the colormap
+  bright : bool [optional]
+           Whether to have bright varieties of red and blue at the endings or the default dark ones
+  invert : bool [optional]
+           Whether to invert the colormap
+  negative : bool [optional]
+             Whether to take the negative of the specified colors
+  interpolation : {'linear', 'nearest'}
+                  'linear' implies linear interpolation between markers
+                  'nearest' implies no interpolation and only the marker colors are valid colors
+
+  Returns:
+  --------
+  In case "istep=None", the function returns a colormapobject via the function matplotlib.colors.
+  LinearSegmentedColormap function.
+
+  In case "istep=<int>", the color at step "istep" is returned as an 3-tuple of rgb values
+
+  In case "istep='vector'", the 3xN ndarray with rgb values is returned, giving the full set of
+  colors, with N is "nof_steps"
+
+  See Also:
+  ---------
+  matplotlib.colors : submodule containing information on colors and colormaps
+  matplotlib.colors.LinearSegmentedColormap : creates a colormap object from a RGB input
+  '''
+  marker_array = np.array([[0, 0, 0, 127.5],  # dark blue
+                           [32, 0, 0, 255],  # blue
+                           [64, 0, 255, 255],  # cyan
+                           [112, 0, 255, 0],  # green
+                           [128, 200, 200, 200],
+                           [140, 255, 128, 40],  # orange
+                           [192, 255, 0, 0],  # red
+                           [255, 128, 0, 0]], dtype='float')/255  # dark red
+
+  # if bright then ditch darker edge markers (reduce list by 1 on both sides)
+  if bright:
+    marker_array = marker_array[slice(1, -1), :]
+    # stretch positions
+    positions = marker_array[:, 0]
+    positions -= positions[0]
+    positions /= positions[-1]
+    marker_array[:, 0] = positions
+
+  return _gen_cmap_output(marker_array, nof_steps, istep, invert, negative, interpolation,
+                          name='jetmod')
+
+
 def jetext(nof_steps=256, istep=None, invert=False, negative=False, interpolation='linear'):
   '''
   Modified 'jet' colormap which extends the lower values to black, and the upper values to white
@@ -493,3 +554,49 @@ def binary(nof_steps=256, istep=None, invert=False, negative=False, interpolatio
 
   return _gen_cmap_output(marker_array, nof_steps, istep, invert, negative, interpolation,
                           name='binary')
+
+
+def bgr(nof_steps=256, istep=None, invert=False, negative=False, interpolation='linear'):
+  '''
+  Colormap for displaying blue/green/red. consists of 3 colors
+
+  Arguments:
+  ----------
+  nof_steps : int [optional]
+              The number of colors in the colormap
+  istep : {int, None, 'vector'} [optional]
+          Main switch to indicate what to return:
+           - an integer, results in a single RGB 3-tuple to be returned
+           - None, results in the creation of a colormap object which is returned
+           - 'vector', results in the return of a Nx3 ndarray of all RGB colors in the colormap
+  invert : bool [optional]
+           Whether to invert the colormap
+  negative : bool [optional]
+             Whether to take the negative of the specified colors
+  interpolation : {'linear', 'nearest'}
+                  'linear' implies linear interpolation between markers
+                  'nearest' implies no interpolation and only the marker colors are valid colors
+
+  Returns:
+  --------
+  In case "istep=None", the function returns a colormapobject via the function matplotlib.colors.
+  LinearSegmentedColormap function.
+
+  In case "istep=<int>", the color at step "istep" is returned as an 3-tuple of rgb values
+
+  In case "istep='vector'", the 3xN ndarray with rgb values is returned, giving the full set of
+  colors, with N is "nof_steps"
+
+  See Also:
+  ---------
+  matplotlib.colors : submodule containing information on colors and colormaps
+  matplotlib.colors.LinearSegmentedColormap : creates a colormap object from a RGB input
+  '''
+  marker_array = np.array([[0, 0, 0, 1],
+                           [0.4, 0, 0, 1],
+                           [0.5, 0, 1, 0],
+                           [0.6, 1, 0, 0],
+                           [1, 1, 0, 0]], dtype=np.float)
+
+  return _gen_cmap_output(marker_array, nof_steps, istep, invert, negative, interpolation,
+                          name='bgr')
