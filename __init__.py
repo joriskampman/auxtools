@@ -46,12 +46,9 @@ import sys # noqa
 from .cmaps import * # noqa
 
 # constants
-lightspeed = 299706720.0
+lightspeed_radar = 299706720.0
 boltzmann = 1.3806485279e-23
 r_earth = 6371.0088e3
-radius_earth = r_earth
-d2r = np.pi/180
-r2d = 180/np.pi
 T0 = 290
 
 # use_levels:
@@ -122,13 +119,113 @@ def set_warnings_format():
   return None
 
 
+def set_autolimit_mode():
+  print("Setting the autolimit_mode to 'round_numbers' to force limits on the axis' min/max .. ",
+        end="")
+  plt.rcParams['axes.autolimit_mode'] = 'round_numbers'
+  print("done!")
+
+  return None
+
+
 # CLASSES
 class IncorrectNumberOfFilesFound(Exception):
   pass
 
 
 # FUNCTIONS
-def colorbar(im, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", **kwargs):
+def plot_interval_patch(xdata, ydata, axis=0, stat='minmax', ax=None, **plotkwargs):
+  """
+  plot an interval patch
+  """
+  # check data
+  if ydata.ndim != 2:
+    raise ValueError("The 'ydata' argument must be a ndarray of 2 dimensions")
+
+  if stat.endswith('minmax'):
+    mindata = np.min(ydata, axis=axis)
+    maxdata = np.max(ydata, axis=axis)
+
+  elif stat.endswith('std'):
+    nof_chars = len('std')
+    if len(stat) == nof_chars:
+      factor = 1.
+    else:
+      factor = float(stat[:-(nof_chars+1)])
+
+    meandata = np.mean(ydata, axis=axis)
+    stddata = np.std(ydata, axis=axis)
+
+    mindata = meandata - factor*stddata
+    maxdata = meandata + factor*stddata
+
+  else:
+    raise ValueError("The 'stat' keyword argument value given ({:s}) is not valid!"
+                     .format(stat))
+
+  # find the upper and lower lines
+  verts = [*zip(xdata, maxdata), *zip(xdata[-1::-1], mindata[-1::-1])]
+  poly = Polygon(verts, **plotkwargs)
+  print(verts)
+
+  if ax is None:
+    ax = plt.gca()
+    plt.show(block=False)
+    plt.draw()
+
+  ax.add_artist(poly)
+  plt.draw()
+
+  return poly
+
+
+def pick_from_interval(minval, maxval, nof_samples=1):
+  """
+  pick a sample from the interval defined by min and max
+  """
+  pick_rel = np.random.random_sample(nof_samples)
+
+  drange = datarange([minval, maxval])
+  minval = min([minval, maxval])
+  pick = drange*pick_rel + minval
+
+  if nof_samples == 1:
+    pick = pick.item()
+
+  return pick
+
+
+def angled(cvals, unwrap=False, axis=-1):
+  """
+  return an angle in degrees
+  """
+  if unwrap:
+    angvals = np.rad2deg(np.unwrap(np.angle(cvals), axis=axis))
+  else:
+    angvals = np.angle(cvals, deg=True)
+
+  return angvals
+
+
+def timestamp(dt=None, sortable=False, fmt=None):
+  """ get the timestamp """
+  if dt is None:
+    dt = dtm.datetime.now()
+  # first is for sorting, maximually short
+  if fmt is None:
+    if sortable:
+      tstr = dtm.datetime.strftime(dt, "%Y%m%d_%H%M%S")
+
+    # slightly longer and more readable
+    else:
+      tstr = dtm.datetime.strftime(dt, "%H:%M:%S, %d %b %Y")
+  else:
+    tstr = dtm.datetime.strftime(dt, fmt)
+
+  return tstr
+
+
+def colorbar(im, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", cbarlabel='', **kwargs):
   """
   wrapper around the colorbar
   """
@@ -158,6 +255,7 @@ def colorbar(im, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", **kwargs):
   plt.draw()
   plt.pause(1e-4)
   cb.set_ticklabels(ticklabels, update_ticks=True)
+  cb.ax.set_ylabel(cbarlabel, rotation=-90, va='bottom', fontsize=8, fontweight='normal')
   print(ticklabels)
   plt.draw()
 
@@ -218,7 +316,7 @@ def check_if_even(vals):
   # check type --> assume all have the same type
   reslist = []
   for val in vals:
-    if isinstance(val, (float, np.float_, np.float32, np.float16, np.float64, np.float)):
+    if isinstance(val, (float, np.floating)):
       if val.is_integer():
         val = int(0.5 + val)
       else:
@@ -248,7 +346,7 @@ def check_if_odd(vals):
   # check type --> assume all have the same type
   reslist = []
   for val in vals:
-    if isinstance(val, (float, np.float_, np.float32, np.float16, np.float64, np.float)):
+    if isinstance(val, (float, np.floating)):
       if val.is_integer():
         val = int(0.5 + val)
       else:
@@ -269,18 +367,45 @@ def check_if_odd(vals):
   return ret
 
 
-def format_as_si(value, fmt="{:g} {:s}", max_use_level=0):
+def format_as_si(value, nsig=3, ndec=None, sep=" ", fmt='auto', max_use_level=0,
+                 check_if_int=True, force_int=False):
   """
   print a value as an SI string value
   """
   val, dct = scale_by_si_prefix(value, max_use_level=max_use_level, scale_values=True)
 
+  if force_int:
+    val = int(0.5 + val)
+
+  if check_if_int:
+    if isinstance(val, (np.floating, float)) and val.is_integer():
+      val = np.int(val)
+      fmt = "{:d}"
+
+  if fmt.startswith('auto'):
+    if isinstance(val, (np.floating, float)):
+      n_before_dec_point = np.log10(val).astype(int)
+      if ndec is not None:
+        n_after_dec_point = ndec
+      else:
+        n_after_dec_point = nsig - 1 - n_before_dec_point
+
+      fmt = "{{:{:d}.{:d}f}}".format(n_before_dec_point, n_after_dec_point)
+    elif isinstance(val, (np.integer, int)):
+      fmt = "{:d}"
+
+  fmt += sep
+  fmt += "{:s}"
+
   string = fmt.format(val, dct['sym'])
+
+  # remove possible trailing spaces
+  string = string.strip()
 
   return string
 
 
-def scale_by_si_prefix(values, base_pref_on_what='max', max_use_level=0, scale_values=True):
+def scale_by_si_prefix(values, base_pref_on_what='rms', max_use_level=0, scale_values=True):
   """
   return the scaled values and return the prefix
   """
@@ -300,6 +425,10 @@ def scale_by_si_prefix(values, base_pref_on_what='max', max_use_level=0, scale_v
     val2check = values.min()
   elif base_pref_on_what.startswith("max"):
     val2check = values.max()
+  elif base_pref_on_what.startswith("absmax"):
+    val2check = np.abs(values).max()
+  elif base_pref_on_what.startswith("rms"):
+    val2check = rms(values)
   else:
     raise ValueError("The given value for *base_pref_on_what* ({}) is not valid"
                      .format(base_pref_on_what))
@@ -320,6 +449,7 @@ def scale_by_si_prefix(values, base_pref_on_what='max', max_use_level=0, scale_v
 
   # get the SI prefix dictionary
   si_prefix_dict = si_prefixes[fnd_powval]
+  si_prefix_dict['key'] = fnd_powval
   si_prefix_dict['sf'] = np.power(10., fnd_powval)
 
   output_list = [si_prefix_dict]
@@ -589,6 +719,9 @@ def common_part(list_of_strings, return_uncommon=False, from_end=False):
   what is the common part in all strings in the list
   """
   list_of_strings = listify(list_of_strings)
+  # corner case: single element
+  if len(list_of_strings) == 1:
+    return list_of_strings
 
   # how many
   nof_strs = len(list_of_strings)
@@ -640,7 +773,7 @@ def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=Fals
   if fig is None:
     fig = plt.gcf()
 
-  kwargs = dict(format=ext[1:], papertype="a3")
+  kwargs = dict(format=ext[1:])
   kwargs.update(savefig_kwargs)
 
   if name is None:
@@ -950,7 +1083,7 @@ def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_i
     raise ValueError("The values in the sequence '{:s}' cannot be determined"
                      .format(seqstr))
 
-  if isinstance(typefcn, (np.float_, np.float, float)):
+  if isinstance(typefcn, (np.floating, float)):
     if check_if_int:
       is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
       if is_int_seq:
@@ -1209,27 +1342,47 @@ def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fil
 
 def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d}',
                strfmt='{:s}', cplxfmt='{:f}', compress=False, maxlen=None,
-               spiffy=False, **short_kws):
+               spiffy=False, max_num_elms=None, **short_kws):
   """
   glue a list of elements to a string
   """
-  types_conv_dict = {str: strfmt,
-                     int: intfmt,
-                     np.int64: intfmt,
-                     np.int16: intfmt,
-                     float: floatfmt,
-                     np.complex_: cplxfmt,
-                     complex: cplxfmt,
-                     np.bool_: '{}',
-                     bool: '{}',
-                     dict: "<dict>",
-                     list: "<list>",
-                     np.int32: intfmt,
-                     type(None): "None"}
+  def empty(arg):
+    return arg
+
+  types_conv_dict = {str: (strfmt, empty),
+                     int: (intfmt, empty),
+                     np.int64: (intfmt, empty),
+                     np.int16: (intfmt, empty),
+                     float: (floatfmt, empty),
+                     np.complex_: (cplxfmt, empty),
+                     complex: (cplxfmt, empty),
+                     np.bool_: ('{}', empty),
+                     bool: ('{}', empty),
+                     dict: ("<{:d}-key dict>", len),
+                     list: ("<{:d}-list>", len),
+                     np.int32: (intfmt, empty),
+                     type(None): ("None", empty),
+                     np.ndarray: ("<{:d}-array>", len),
+                     np.void: ("np.void", empty),
+                     dtm.datetime: ('{}', timestamp)}
 
   # make inputs a list (in case they are not)
   list2glue = listify(list2glue)
   nof_in_list = len(list2glue)
+
+  # corner case: single element
+  if nof_in_list == 1:
+    value = list2glue[0]
+    if isinstance(value, (np.floating, float)):
+      string = floatfmt.format(value)
+    elif isinstance(value, (np.integer, int)):
+      string = intfmt.format(value)
+    elif isinstance(value, str):
+      string = strfmt.format(value)
+    else:
+      lkjasdf
+
+    return pfx + string + sfx
 
   if spiffy and len(pfx) > 0:
     pfx_sep_opts = [':', '=', ';', '-']
@@ -1272,15 +1425,24 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
 
   # if not compressed or compressible (after a warning)
   fmtlist = list2glue.copy()
+  fcnlist = list2glue.copy()
   for key in types_conv_dict.keys():
-    fmtlist = [types_conv_dict[key] if isinstance(elm, key) else elm for elm in fmtlist]
+    fmtlist = [types_conv_dict[key][0] if isinstance(elm, key) else elm for elm in fmtlist]
+    fcnlist = [types_conv_dict[key][1] if isinstance(elm, key) else elm for elm in fcnlist]
 
-  output_parts = [fmtstr.format(elm) for (fmtstr, elm) in zip(fmtlist, list2glue)]
+  output_parts = [fmtstr.format(fcn(elm)) for (fcn, fmtstr, elm)
+                  in zip(fcnlist, fmtlist, list2glue)]
+  if max_num_elms is None:
+    max_num_elms = np.inf
+  num_elms_to_pick = min(max_num_elms, len(output_parts))
+  output_string = pfx + sep.join(output_parts[:(num_elms_to_pick-1)])
   if spiffy and nof_in_list > 1:
-    output_string = (pfx + sep.join(output_parts[:-1]) +
-                     " and " + output_parts[-1])
+    output_string += ' and '
   else:
-    output_string = pfx + sep.join(output_parts) + sfx
+    output_string += sep
+
+  # finalize
+  output_string += output_parts[-1] + sfx
 
   if maxlen is not None:
     output_string = short_string(output_string, maxlen, **short_kws)
@@ -1331,47 +1493,6 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
     output = output_list
 
   return output
-
-
-def RENAME_FILES_AND_FOLDERS_NOT_FINISHED(basedir, str2replace, replacement, recursive=True,
-                                          dryrun=True, verbose=True):
-  """
-  rename the files and folders encountered
-  """
-  if not os.path.exists(basedir):
-    raise FileNotFoundError("The basedir ({:s}) is not found!".format(basedir))
-
-  contents_org = os.listdir(basedir)
-  contents_fnd = [name for name in contents_org if str2replace in name]
-  contents_new = []
-  contents_old = []
-  dirs = []
-  results = []
-  for name in contents_fnd:
-    new_name = name.replace(str2replace, replacement)
-    if verbose:
-      print("{:s} --> {:s}".format(name, new_name))
-    contents_new.append(new_name)
-    contents_old.append(name)
-    dirs.append(basedir)
-    if recursive and os.path.isdir(os.path.join(basedir, name)):
-      (contents_old_,
-       contents_new_,
-       dirs_,
-       results_) = rename_files_and_folders(os.path.join(basedir, name), str2replace, replacement,
-                                            recursive=recursive, dryrun=dryrun, verbose=verbose)
-      contents_old += contents_old_
-      contents_new += contents_new_
-      dirs += dirs_
-      results += results_
-
-  if dryrun:
-    print("Only a dry-run requested. Set *dryrun* to False to actually change files and folder")
-  else:
-    results = [os.rename(os.path.join(dirname, oldname), os.path.join(dirname, newname))
-               for dirname, oldname, newname in zip(dirs, contents_old, contents_new)]
-
-  return contents_old, contents_new, dirs, results
 
 
 def extract_value_from_strings(input2check, pattern2match, output_fcn=None, output_type=None,
@@ -1524,7 +1645,7 @@ def find_pattern(pattern, list_of_strings, nof_expected=None, nof_expected_mode=
   if nof_expected is None:
     pass
 
-  elif isinstance(nof_expected, (int, np.int_, np.int)):
+  elif isinstance(nof_expected, (int, np.integer)):
     errstr = ("The expected number of found files is ({}), but only ({}) are found. "
               .format(nof_expected, nof_found)
               + "This is incompatible with *nof_expected_mode*=`{}`".format(nof_expected_mode))
@@ -1570,15 +1691,28 @@ def pconv(dirname):
   """
   convert the path in windows format to linux
   """
-  win2lin = {'s:': '/work',
-             'm:': '/home/dq968/'}
 
+  if sys.platform.startswith('win'):
+    conversion_table = {'/work': 's:',
+                        '/home/dq968/': 'm:',
+                        '/': os.sep}
+
+  elif sys.platform.startswith('linux'):
+    conversion_table = {'s:': '/work',
+                        'm:': '/home/dq968/',
+                        '\\': os.sep}
+    pass
+  else:
+    raise ValueError("The platform found ({:s}) is not known".format(sys.platform))
+
+  # first ensure all \ are doubled to \\
   # replace all backslashes with forward slashes
-  dirname = dirname.replace('\\', os.sep)
-
-  for wkey, sub in win2lin.items():
+  for wkey, sub in conversion_table.items():
     dirname = dirname.replace(wkey, sub)
-    dirname = dirname.replace(wkey.upper(), sub)
+
+  # end with file separator
+  if not dirname.endswith(os.sep):
+    dirname += os.sep
 
   return dirname
 
@@ -1654,7 +1788,7 @@ def nanplot(*_args, **kwargs):
   else:
     ax = plt.gca()
 
-  if isinstance(_args[0], int):
+  if isinstance(_args[0], (np.integer, int)):
     xs = np.r_[:_args[0]]
   else:
     xs = _args[0]
@@ -1784,11 +1918,13 @@ def make_array_like(input_, array_like):
   """
   make an input into an array like
   """
-  output = deepcopy(input_)
+  output = input_
 
   # from single elements to array of 1 element
   if np.ndim(input_) == 0:
     output = [input_,]
+  # elif np.ndim(input_) > 1:
+  #   output = output.ravel()
 
   # convert to the right type
   if array_like == 'list' or array_like == 'np.ndarray':
@@ -2053,10 +2189,10 @@ def select_file(**options):
   filename : str
              The file name with the full path attached as a single string
   """
-  root = Tk()
+  root = tk.Tk()
   root.withdraw()
 
-  filename = filedialog.askopenfilename(**options)
+  filename = tk.filedialog.askopenfilename(**options)
 
   return filename
 
@@ -2084,7 +2220,7 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
   filename : str
              The file name with the full path attached as a single string
   """
-  root = Tk()
+  root = tk.Tk()
   root.withdraw()
 
   if filetypes is None:
@@ -2095,7 +2231,7 @@ def select_savefile(defaultextension=None, title=None, initialdir=None, initialf
                  ("All files", "*.*")]
 
   # while True:
-  filename = filedialog.asksaveasfilename(defaultextension=defaultextension,
+  filename = tk.filedialog.asksaveasfilename(defaultextension=defaultextension,
                                           initialdir=initialdir, title=title,
                                           initialfile=initialfile, filetypes=filetypes)
 
@@ -2133,10 +2269,10 @@ def select_folder(**options):
     defaultextension - the default extension to append to file (save dialogs only)
     multiple - when True, selection of multiple items is allowed (default=False)
   """
-  root = Tk()
+  root = tk.Tk()
   root.withdraw()
 
-  dirname = filedialog.askdirectory(**options)
+  dirname = tk.filedialog.askdirectory(**options)
 
   root.quit()
   root.destroy()
@@ -2196,14 +2332,13 @@ def calc_frequencies(nof_taps, fs, center_zero=True):
 
 
 def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=True,
-             dB=True, qplot=True, yrange=None, **plot_kwargs):
+             dB=True, makeplot=True, yrange=None, plotspec='b.-', title='auto', **plot_kwargs):
   """
   get the spectrum of a signal
   """
-  plot_kwargs_ = dict(ax=None, ls='-', color='b')
+  plot_kwargs_ = dict(ax=None)
   plot_kwargs_.update(plot_kwargs)
 
-  figtitle = "Spectrum"
   signal = signal.reshape(-1)
   if nof_taps is None:
     nof_taps = signal.size
@@ -2213,12 +2348,14 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
   # overwrite freqs_base by the scaled version
   freqs, sidict = scale_by_si_prefix(freqs_unscaled, base_pref_on_what="max")
 
-  figtitle += ", {:d} taps".format(freqs.size)
+  nof_bins = freqs.size
+  freq_per_bin = fs/nof_bins
+  figtitle = "1:{:g} spectrum, {:s}Hz per bin".format(nof_bins/signal.size,
+                                                      format_as_si(freq_per_bin))
 
   spect_ = np.fft.fft(signal, n=nof_taps)
   spect = np.abs(spect_)
   if center_zero:
-    figtitle += ", centered"
     spect = fftshift(spect)
 
   if isinstance(scaling, str):
@@ -2226,12 +2363,22 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
       sf = 1.
     elif scaling == 'per_sample':
       sf = nof_taps
-      figtitle += ", per sample"
-    elif scaling == 'normalize':
+    elif scaling.startswith('normalize'):
       sf = np.abs(spect).max()
       figtitle += ", normalized"
+    elif scaling.startswith('bw'):
+      # estimate the bandwidth
+      sf_thres = 0.25
+      ampmax = max(spect)
+      threshold = ampmax*sf_thres
+      tf_valid = (spect >= threshold)
+      sf = np.median(np.abs(spect[tf_valid]))
     else:
       raise NotImplementedError("The value for *scaling={}* is not implemented".format(scaling))
+  elif isinstance(scaling, (list, tuple)):
+    bw_start, bw_end = scaling
+    tf_valid_freqs = (freqs >= bw_start/sidict['sf'])*(freqs <= bw_end/sidict['sf'])
+    sf = np.median(np.abs(spect[tf_valid_freqs]))
   else:
     sf = np.float_(scaling)
     figtitle += ", {:0.1f} scaling".format(sf)
@@ -2248,13 +2395,10 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
     else:
       freqs = freqs[:nof_samples//2]
       spect = spect[:nof_samples//2]
-  else:
-    figtitle += ", full spectrum"
 
   if dB:
     spect = logmod(spect)
-    figtitle += ", logscale"
-    if scaling == 'normalize':
+    if isinstance(scaling, str) and scaling.startswith('normalize'):
       yscale = "Power [dBc]"
     else:
       yscale = "Power [dB]"
@@ -2267,26 +2411,29 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
     yscale = "Power [lin]"
 
   ax = plot_kwargs_.pop('ax')
-  if qplot:
+  if makeplot:
     # plot the stuff
 
     if ax is None:
       fig = plt.figure(figname(figtitle))
       ax = fig.add_subplot(111)
 
-    ax.plot(freqs, spect, **plot_kwargs_)
-    ax.set_title(figtitle)
+    ax = qplot(ax, freqs, spect, plotspec, **plot_kwargs_)
+    if isinstance(title, str) and title == 'auto':
+      title = figtitle
+    ax.set_title(title)
     ax.set_xlabel("Frequency [{:s}Hz]".format(sidict['sym']))
     ax.set_ylabel(yscale)
     if yrange is not None:
       ax.set_ylim(top=ymax, bottom=ymin)
     plt.show(block=False)
+    plt.draw()
 
   return freqs_unscaled, fftshift(spect_), ax
 
 
-def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
-                              max_nof_peaks=None, min_rel_height_db=10, qplot=False, **plotkwargs):
+def find_dominant_frequencies(signal, fs, f1p=None, scaling='default', max_nof_peaks=None,
+                              min_rel_height_db=10, makeplot=False, **plotkwargs):
   """
   find the frequencies in the spectrum of a signal
 
@@ -2305,7 +2452,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
                       The minimimum relative height from the main spectral frequency above which
                       additional peaks can be found. the sign is of no importance and will be
                       corrected for
-  qplot : bool, default=False
+  makeplot : bool, default=False
          Whether to plot the spectrum and the peaks superimposed
   scaling : [ 'default' | 'normalize' | 'per_sample' ], default='default'
                  The fourier transform scaling. These are:
@@ -2339,7 +2486,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
 
   signal_unbias = signal - np.mean(signal)
   freqs, Ydb_debias = spectrum(signal_unbias, fs=fs_, center_zero=False, scaling='default',
-                               full=False, qplot=False, dB=True)
+                               full=False, makeplot=False, dB=True)
 
   # calculate the minimum distance between samples
   dP_per_sample = fs_/(2.*nof_samples)
@@ -2386,7 +2533,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
 
   peakvals -= offset
 
-  if qplot:
+  if makeplot:
     if 'ax' in plot_kwargs.keys():
       ax = plot_kwargs['ax']
     else:
@@ -2404,7 +2551,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default',
         ax.set_ylabel("Power [dB]")
 
     xs, ys = spectrum(signal, fs=fs_, center_zero=False, scaling=scaling, full=False,
-                      dB=True, qplot=False)
+                      dB=True, makeplot=False)
 
     ax.plot(xs, Ydb_debias - offset, 'k--')
     ax.plot(xs, ys, 'b-')
@@ -3468,7 +3615,7 @@ def logmod(x, multiplier=20):
   return output
 
 
-def bracket(x):
+def bracket(x, axis=-1):
   '''
   *bracket* returns the minimum and maximum values of a ndarray of unlimited dimensions.of
 
@@ -3484,10 +3631,10 @@ def bracket(x):
   Author: Joris Kampman, Thales NL, 2017
   '''
   x = arrayify(x)
-  return np.nanmin(x), np.nanmax(x)
+  return np.nanmin(x, axis=axis), np.nanmax(x, axis=axis)
 
 
-def datarange(vals):
+def datarange(vals, axis=-1):
   '''
   *range* gives the value range for a - multidimensional - ndarray of numerical values.
 
@@ -3504,7 +3651,7 @@ def datarange(vals):
   Author = Joris Kampman, Thales NL, 2017.
   '''
 
-  mini, maxi = bracket(vals)
+  mini, maxi = bracket(vals, axis=axis)
   return maxi - mini
 
 
@@ -3569,8 +3716,8 @@ def filter_gains(coefs, axis=-1, scale='db'):
   # coefs_2d = coefs.reshape(nof_filters, -1)
 
   # calculate noise gain
-  noise_gain = np.sum(np.abs(coefs)**2, axis=axis).reshape(-1)
-  signal_gain = (np.abs(coefs).sum(axis=axis)**2).reshape(-1)
+  noise_gain = np.sum(np.abs(coefs)**2, axis=axis)
+  signal_gain = (np.abs(coefs).sum(axis=axis)**2)
   snr_gain = signal_gain/noise_gain
 
   gains = {'noise': noise_gain,
@@ -3717,23 +3864,18 @@ def paper_A_dimensions(index, units="m", orientation='landscape'):
   return w, h
 
 
-def get_max_figure_size_inches():
-  """
-  get the maximum figure size of a figure
-  """
-  fig = plt.figure()
-  plt.get_current_fig_manager().window.showMaximized()
-  wfig, hfig = fig.get_size_inches()
-  plt.close(fig)
-
-  return wfig, hfig
-
-
-def get_max_a_size_for_display(fig=None, orientation='landscape', units='mm'):
+def get_max_a_size_for_display(fig=None, orientation='landscape', nof_monitors='auto',
+                               units='inches'):
   """
   get the maximum size with A-ratio that can be displayed
   """
-  wfigmax, hfigmax = get_max_figure_size_inches()
+  wfigmax, hfigmax = get_screen_dims(units=units)
+  # check if there are multiple monitors
+
+  if isinstance(nof_monitors, str) and nof_monitors == 'auto':
+    nof_monitors = int(0.5 + np.log2(wfigmax/hfigmax))
+
+  wfigmax /= nof_monitors
   wA0, hA0 = paper_A_dimensions(0, units=units, orientation=orientation)
 
   # ratio for the conversion of max height to width
@@ -3746,13 +3888,11 @@ def get_max_a_size_for_display(fig=None, orientation='landscape', units='mm'):
   return width, height
 
 
-def move_figure_to_monitor(imon):
+def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False, conv_mode='same',
+                downsample=True, nof_pts_per_filt='auto', return_indices=False,
+                return_filt=False):
   """
-  move the figure to a specified monitor
-  """
-  mng = plt.get_current_fig_manager()
-  mng.window.move()
-
+  smooth the data
 
 def resize_figure(fig=None, size='amax', sf=1., orientation='landscape'):
   '''
@@ -4566,7 +4706,7 @@ def short_string(str_, maxlength=None, what2keep='edges', placeholder="..."):
   if what2keep in ('middle', 'center', 'centre'):
     what2keep = strlen//2 - pllen
 
-  if isinstance(what2keep, (np.int_, int, float, np.float_)):
+  if isinstance(what2keep, (np.integer, int, float, np.floating)):
     what2keep = np.int(what2keep + 0.5)
     nof_chars = maxlength - 2*pllen
     istart_keep = np.int(what2keep + 0.5)
@@ -4713,12 +4853,12 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
           # find shortest
           isort = np.argsort([len(elm) for elm in list2search_fnd])
           output = arrayify(output)[isort[:nreq]].tolist()
-          warnings.warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware".
-               format(ifnd.size, nreq), category=ShortestElementTakenWarning)
+          warnings.warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware"
+                        .format(ifnd.size, nreq), category=ShortestElementTakenWarning)
         else:
           output = np.array([])
-          warnings.warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware".
-               format(ifnd.size, nreq), category=EmptyListReturnedWarning)
+          warnings.warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware"
+                        .format(ifnd.size, nreq), category=EmptyListReturnedWarning)
 
   return output
 
@@ -5108,7 +5248,7 @@ def markerline(marker, length=None, text=None, doprint=True, edge=None):
 
 
 def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True,
-                     shorten_last_col=True, hline_at_index=None, hline_marker='-',
+                     shorten_last_col=False, hline_at_index=None, hline_marker='-',
                      what2keep='end'):
   """
   print a list of strings as a row with n columns
@@ -5142,7 +5282,8 @@ def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True
     if shorten_last_col:
       colsizes_needed[-1] = colsizes_needed[-1] - total_size_needed + maxlen - 1
     else:
-      raise ValueError("The total amount of space required does not fit in the available space")
+      maxlen = total_size_needed - 2
+      # raise ValueError("The total amount of space required does not fit in the available space")
 
   # build the string
   lines = []
@@ -5566,3 +5707,5 @@ def strip_sep_from_string(text, sep='_'):
 
 # set the warnings format
 set_warnings_format()
+
+set_autolimit_mode()
