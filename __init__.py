@@ -2705,6 +2705,39 @@ def select_file(**options):
   return filename
 
 
+def ask_question(question, **options):
+  """
+  select a file to open
+
+  Arguments:
+  ----------
+  **options : dictionary of keyword arguments, which are:
+    defaultextension : str
+                       The extension to append
+    filetype : list of str
+               The file types to list
+    initialdir : str
+                 The folder to start in
+    initialfile: str
+                 The initial file name without the extension
+    title: The title of the window
+
+  Returns:
+  --------
+  filename : str
+             The file name with the full path attached as a single string
+  """
+  root = tk.Tk()
+  root.geometry("10x10+400+500")
+  root.withdraw()
+  root.lift()
+
+  filename = tk.messagebox.askyesno("I have a question", question, parent=root, **options)
+
+  root.destroy()
+  return filename
+
+
 def select_savefile(defaultextension=None, title=None, initialdir=None, initialfile=None,
                     filetypes=None):
   """
@@ -4402,64 +4435,98 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False, conv_mode='sa
   """
   smooth the data
 
-def resize_figure(fig=None, size='amax', sf=1., orientation='landscape'):
-  '''
-  resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
-  the display on the screen.None
+  arguments:
+  ----------
+  data : np.ndarray
+         The data points to be smoothed
 
-  positional arguments:
-  ---------------------
-  <none>
+  filtsize : float or int, default=0.07
+             The filter size.
+             If < 1., it is the fraction of the data length
+             If > 1., it is the number of taps (rounded to nearest integer)
+  std_filt : float, default=2.5
+             The standard deviation of the smoothing mask
+  makeplot : bool, default=False
+             If True creates a plot showing the raw data and the smoothed result
+  conv_mode : ['same', 'full', 'valid'], default='same'
+              The mode parameter for the np.convolve function. 'same' will result in an output
+              which is equal to the input number of samples
+  downsample : bool, default=True
+               Whether to downsample the smoothed data
+  nof_pts_per_filt : ['auto' | int], default='auto'
+                     If 'downsample' is true, these are the number of points per filter. 'auto'
+                     will return a data equal to the standard deviation
 
-  keyword arguments:
-  ------------------
-  fig         [handle] figure handle. If None is given, the current figure handle will be taken
-  size        [None/'maximize'/list(float)] either None or a list of 2 elements containing the
-                                 width and
-                                 height in inches. In case None is given (the default), the figure
-                                 is maximized to the screen while maintaining the a-format ratio of
-                                 sqrt(2) to 1
-  orientation [str] either 'portrait' or 'landscape', this value is only used in combination with
-                    size=None. Otherwise this value is don't care
-  tight_layout [bool] is boolean indicating to use the function 'jktools.tighten' to
-                      minimize whitespace around the axes while still preserving room for all
-                      possible titles. Works well when size=None
+  Outputs:
+  --------
+  ipts : np.ndarray
+         The interpolated and downsampled points such that the raw (high sample rate) and
+         downsampled data graphs are overlaying. If no downsampling, this is the basis set of 0 to
+         nof original samples
+  data_f : np.ndarray
+           The filtered and possibly downsampled data
+  filt : np.ndarray
+         the actual filter used in smoothing
 
-  resize_figure returns None, but immediately updates the figure size via the function
-  fig.set_size_inches(..., forward=True)
-
-  '''
-  if fig is None:
-    fig = plt.gcf()
-
-  # set figure manager
-  mng = plt.get_current_fig_manager()
-
-  # reset to normal
-  mng.window.showNormal()
-
-  # if; maximize
-  if size.endswith("maximize"):
-    # first: maximize
-    mng.window.showMaximized()
-
-  # else: A paper dimensions (a/b=sqrt(2))
-  elif size.startswith('a'):
-    if size == 'amax':
-      # Height can always be maximized
-      width, height = get_max_a_size_for_display(fig=fig, units='inches', orientation=orientation)
-
-    else:
-      width, height = paper_A_dimensions(np.int(size[1:]), units='inches', orientation=orientation)
-
-    # use width and height to set the figure size
-    fig.set_size_inches(sf*width, sf*height, forward=True)
-
-  # else: witdth and height are given
+  Author:
+  -------
+  Joris Kampman, Thales NL, 2023
+  """
+  if filtsize <= 1.:
+    filtsize = 2*(np.round(filtsize*data.size)//2) + 1
   else:
-    fig.set_size_inches(*size, forward=True)
+    if float(filtsize).is_integer():
+      pass
+    else:
+      filtsize = np.round(filtsize)
+      warnings.warn("The filter size given ({:0.3f}) is not an integer"
+                    .format(filtsize)
+                    + "It will be rounded to {:d}")
 
-  return fig
+  # make it into a size of a filter (nof samples)
+  nof_filt_samples = int(0.5 + filtsize)
+
+  if nof_filt_samples%2 == 0:
+    warnings.warn("The number of filter samples ({:d}) is EVEN. Be carefull!"
+                  .format(nof_filt_samples))
+
+  if nof_filt_samples < 1:
+    data_f = data
+    filt = np.array([1.], dtype=float)
+  else:
+      # make a gaussian filter
+    std = nof_filt_samples/std_filt
+    filt = spsw.gaussian(nof_filt_samples, std, sym=True)
+    filt -= filt.min()
+    filt /= filt.sum()
+
+    data_f = np.convolve(data, filt, mode=conv_mode)
+    ipts = np.r_[:data_f.size]
+
+  if makeplot:
+    ax = qplot(data, 'k.-', label="Unfiltered")
+    qplot(ax, ipts, data_f, 'r.-', label="Filtered - same sample-rate")
+
+  # if downsample
+  if downsample:
+    if isinstance(nof_pts_per_filt, str) and nof_pts_per_filt == 'auto':
+      nof_pts_per_filt = int(0.5 + std_filt)
+
+    stepsize = int(0.5 + (filt.size - 1)/nof_pts_per_filt)
+    ipts = ipts[::stepsize]
+    data_f = data_f[::stepsize]
+
+  if makeplot:
+    ax = qplot(ax, ipts, data_f, 'g.-', label="Filtered - reduced sample-rate")
+    add_figtitles("Smoothed data")
+
+  output = data_f
+  if return_indices:
+    output = (data_f, ipts)
+  if return_filt:
+    output = (*output, filt)
+
+  return output
 
 
 def abc(a, b, c):
