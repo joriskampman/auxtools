@@ -546,10 +546,41 @@ def break_text(text, maxlen, glue=None, silence_warning=False, print_=False):
     return output
 
 
-def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='bottom',
+def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
               orientation='landscape', sharex=True, sharey=True):
   """
-  create a figure containing of one main plot plus a set of subplots
+  create a figure containing of one main plot plus a set of subplots.
+
+  The subplots can be located to either of the 4 sides of the main axes and can span 1 or multiple
+  rows and or columns; depending on the relative location with respect to the main axes
+
+  arguments:
+  ----------
+  nof_subs : int
+             The number of subfigures to be created
+  name : [None, str], default=None
+         If not None, this is the figure name
+  nof_sub_stacks : int, default=1
+                   The number of subplot rows or columns (depending on *subs_loc*). The default of
+                   1 means that it is a single row/column.
+  ratio : [int | float], default=5
+          The ratio between the size of the large central plot axes and the sub axes. A value of
+          5 is very nice for only a few (5 or less) subplots
+  subs_loc : ['bottom', 'top', 'left', 'right'], defalt='bottom'
+             The location of the subplots stack relative to the main axes
+  orientation : ['portrait' | 'landscape'], default='landscape
+                The orientation of the figure. Should be changed only in consideration with
+                *subs_loc*.
+  sharex : bool, default=True
+           If on zoom, the axes should be zoomed together in the horizontal direction
+  sharey : bool, default=True
+          same as *sharex* but for the verical diretion
+
+  returns:
+  --------
+  fig : the figure object
+  ax0 : the object of the main axes
+  axs_sub : the array-like of the subplots in the stack
   """
   fig = plt.figure(num=figname(name))
 
@@ -630,73 +661,343 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='bottom',
   return fig, ax0, axs_sub
 
 
-def add_figtitles(texts, fig=None):
+def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., alpha=1., markersize=2,
+                  replace_dot_with_circle=True, lw=1, buffer_pix=[4, 8], nrows=1):
+  """
+  add a legend to a figure
+  """
+  if np.isscalar(buffer_pix):
+    buffer_pix = [buffer_pix]*2
+
+  if legdata is None:
+    legdata = plt.gca()
+  elif isinstance(legdata, np.ndarray):
+    legdata = legdata.ravel().tolist()
+  legdata = listify(legdata)
+
+  # get the data based on legdata
+  if isinstance(legdata[0], plt.Axes):
+    legdata_list = []
+    for legdata_ in legdata:
+      legdata_list += legdata_.get_lines()
+    legdata = legdata_list
+
+  if labels is None:
+    labels = [legobj.get_label() for legobj in legdata]
+
+  # check for valid labels
+  tf_labels = [False if lab.startswith('_') else True for lab in labels]
+  labels = np.array(labels)[tf_labels].tolist()
+  legdata = np.array(legdata)[tf_labels].tolist()
+
+  if fig is None:
+    fig = plt.gcf()
+
+  dpi = fig.get_dpi()
+  # get offset and make a transform
+  offset_sub = mtrans.ScaledTranslation(0., -dy_inch - buffer_pix[0]/dpi, fig.dpi_scale_trans)
+  trans_sub = (fig.transFigure + offset_sub)
+
+  # add the legend
+  nof_legends = len(legdata)
+  ncol = int(0.5 + (nof_legends+1)/nrows)
+  leg = fig.legend(legdata, labels, loc="upper center", bbox_to_anchor=[0.5, 1.],
+                   bbox_transform=trans_sub, borderaxespad=0.2, ncol=ncol,
+                   columnspacing=0.4, fontsize=8, edgecolor='k',
+                   prop={'size': 7, 'weight': 'bold'})
+
+  # modify the legdata and markers
+  for legobj in leg.legendHandles:
+    if replace_dot_with_circle:
+      if legobj.get_marker() == '':
+        legobj.set_marker('o')
+    legobj.set_markersize(markersize)
+    legobj.set_linewidth(lw)
+    legobj.set_alpha(alpha)
+
+  hleg_dis = leg.get_window_extent().height
+
+  dpi = fig.get_dpi()
+  hleg_inch = hleg_dis/dpi
+
+  # adjust top
+  buffer_inch = buffer_pix[1]/dpi
+
+  # correct the dy_inch with the size of the
+  dy_inch += buffer_inch + hleg_inch
+
+  winch, hinch = fig.get_size_inches()
+  ytop_rel = 1 - dy_inch/hinch
+
+  # check if there is a title present
+  axs = fig.get_axes()
+  has_title = [len(ax.get_title()) > 0 for ax in fig.get_axes()]
+  if np.any(has_title):
+    iax_w_title = np.argwhere(has_title).ravel()[0]
+    fontsize_pts = axs[iax_w_title].title.get_fontsize()
+    fontsize_inch = fontsize_pts/72
+    padsize_pix = plt.rcParams['axes.titlepad']
+    padsize_inch = padsize_pix/dpi
+    offset_inch = fontsize_inch + padsize_inch + buffer_pix[0]/dpi
+    ytop_rel -= offset_inch/hinch
+
+  fig.subplots_adjust(top=ytop_rel)
+
+  # activate the settings
+  plt.show(block=False)
+  plt.draw()
+  plt.pause(1e-3)
+
+  return leg
+
+
+def add_figtitles(texts, fig=None, xpos_rel=0.5, ypos_rel=1., fontsize_top=12, fontsize_sub=8,
+                  fontweight_top='bold', fontweight_sub='bold', buffer_pix=4,
+                  return_handles=False):
   """
   add a title to a figure
   """
+  htxt_list = []
   if fig is None:
     fig = plt.gcf()
 
   texts = listify(texts)
 
   # get height
-  hinch = fig.get_size_inches()[1]
+  winch, hinch = fig.get_size_inches()
   dpi = fig.get_dpi()
-  ppi = 72.272
-
-  fontsize_top_pt = 12
-  fontsize_sub_pt = 8
-  fontweight_top = 'bold'
-  fontweight_subs = 'bold'
+  ppi = 72
 
   # =================================
   # TOP line
   # =================================
   # top buffer of 2 pixels
-  os_pix = 2
-  os_inch = os_pix/dpi
+  os_inch = buffer_pix/dpi
   os_rel = os_inch/hinch
   ypos_rel = 1. - os_rel
+  if isinstance(xpos_rel, plt.Axes):
+    axlims = xpos_rel.get_position().extents
+    xpos_rel = (axlims[0] + axlims[2])/2
 
-  # add the top text
-  fig.text(0.5, ypos_rel, texts[0], ha='center', va='top', fontsize=fontsize_top_pt,
-           fontweight=fontweight_top,
-           transform=fig.transFigure)
+  # add the top text and fix it to the figure!!
+  htxt_ = fig.text(xpos_rel, ypos_rel, texts[0], ha='center', va='top', fontsize=fontsize_top,
+                   fontweight=fontweight_top, transform=fig.transFigure)
+  htxt_list.append(htxt_)
 
-  # add position offset due to top text font size
-  fontsize_top_inch = fontsize_top_pt/ppi
-  fontsize_top_rel = fontsize_top_inch/hinch
-  ypos_rel -= fontsize_top_rel
-
-  # =================================
-  # now for the subs
-  # =================================
-  fontsize_sub_inch = fontsize_sub_pt/ppi
-  fontsize_sub_rel = fontsize_sub_inch/hinch
-
-  # calculate the buffer size in relative units
-  os_pix = 2
-  os_inch = os_pix/dpi
-  os_rel = os_inch/hinch
-
-  # add the buffer below the top line
-
-  # loop
+  # now the subs must be relative to the top line
+  dy_inch = fontsize_top/ppi + buffer_pix/dpi
   for txt in texts[1:]:
-    ypos_rel -= os_rel
-    # add the buffer
-    fig.text(0.5, ypos_rel, txt, ha='center', va='top', fontsize=fontsize_sub_pt,
-             fontweight=fontweight_subs,
-             transform=fig.transFigure)
-    ypos_rel -= fontsize_sub_rel
-    # add extra spacing for fontsize
+    offset_sub = mtrans.ScaledTranslation(0., -dy_inch, fig.dpi_scale_trans)
+    trans_sub = (fig.transFigure + offset_sub)
+
+    htxt_ = fig.text(xpos_rel, ypos_rel, txt, ha='center', va='top', fontsize=fontsize_sub,
+                     fontweight=fontweight_sub, transform=trans_sub)
+    htxt_list.append(htxt_)
+
+    # new delta y
+    dy_inch += fontsize_sub/ppi + buffer_pix/dpi
 
   # adjust top
-  ypos_current_rel = fig.subplotpars.top
-  os_current_rel = 1. - ypos_current_rel
-  top_new = ypos_rel - os_current_rel
-  fig.subplots_adjust(top=top_new)
+  ytop_rel = 1 - dy_inch/hinch
+
+  # check if there is a title present
+  axs = fig.get_axes()
+  has_title = [len(ax.get_title()) > 0 for ax in fig.get_axes()]
+  if np.any(has_title):
+    iax_w_title = np.argwhere(has_title).ravel()[0]
+    fontsize_pts = axs[iax_w_title].title.get_fontsize()
+    fontsize_inch = fontsize_pts/72
+    padsize_pix = plt.rcParams['axes.titlepad']
+    padsize_inch = padsize_pix/dpi
+    offset_inch = fontsize_inch + padsize_inch + buffer_pix/dpi
+    ytop_rel -= offset_inch/hinch
+
+  fig.subplots_adjust(top=ytop_rel)
+
+  # activate the settings
+  plt.show(block=False)
   plt.draw()
+
+  output_list = dy_inch
+  if return_handles:
+    output_list = [dy_inch, htxt_list]
+
+  return output_list
+
+
+def get_screen_dims(units='inches'):
+  """
+  get the dimensions of the screen
+  """
+  root = tk.Tk()
+  w_pix = root.winfo_screenwidth()
+  h_pix = root.winfo_screenheight()
+
+  # destroy the Tcl
+  root.destroy()
+
+  # output units switching
+  if units.startswith('inch'):
+    dpi = plt.rcParams['figure.dpi']
+    w = w_pix/dpi
+    h = h_pix/dpi
+  elif units == 'pix' or units == 'dots':
+    w = w_pix
+    h = h_pix
+  elif units.startswith('mm'):
+    w = 25.4*w_pix/dpi
+    h = 25.4*h_pix/dpi
+  elif units.startswith('cm'):
+    w = 2.54*w_pix/dpi
+    h = 2.54*h_pix/dpi
+
+  else:
+    raise ValueError("The units value given ({:s}) is not valid. Only 'inch' and 'pix'/'dots' are"
+                     .format(units))
+
+  return w, h
+
+
+def resize_figure(fig=None, size='optimal', sf_a=0.9, orientation='landscape', dy_inch='auto',
+                  tighten=True, shortest_dim_mm=100., pos=(50, 50)):
+  '''
+  resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
+  the display on the screen.None
+
+  positional arguments:
+  ---------------------
+  <none>
+
+  keyword arguments:
+  ------------------
+  fig         [handle] figure handle. If None is given, the current figure handle will be taken
+  size        [None/'maximize'/list(float)] either None or a list of 2 elements containing the
+                                 width and
+                                 height in inches. In case None is given (the default), the figure
+                                 is maximized to the screen while maintaining the a-format ratio of
+                                 sqrt(2) to 1
+  orientation [str] either 'portrait' or 'landscape', this value is only used in combination with
+                    size=None. Otherwise this value is don't care
+  tight_layout [bool] is boolean indicating to use the function 'jktools.tighten' to
+                      minimize whitespace around the axes while still preserving room for all
+                      possible titles. Works well when size=None
+
+  resize_figure returns None, but immediately updates the figure size via the function
+  fig.set_size_inches(..., forward=True)
+
+  '''
+  if fig is None:
+    fig = plt.gcf()
+
+  mng = plt.get_current_fig_manager()
+
+  # move figure to top-left
+  if pos is not None:
+    _, _, width, height = mng.window.geometry().getRect()
+    mng.window.setGeometry(*pos, width, height)
+
+  shortest_dim_inch = shortest_dim_mm/25.4
+
+  if isinstance(dy_inch, str) and dy_inch == 'auto':
+    top_fig = fig.subplotpars.top
+    hinch = fig.get_size_inches()[1]
+    top_inch = top_fig*hinch
+    dy_inch = hinch - top_inch
+
+  # if; maximize
+  wmax, hmax = get_max_a_size_for_display(fig=fig, units='inches', orientation=orientation)
+  if isinstance(size, str):
+    if size.endswith("maximize"):
+      # set figure manager
+      # first: maximize
+      mng.window.showMaximized()
+
+    # else: A paper dimensions (a/b=sqrt(2))
+    elif size.startswith('a'):
+      if size == 'amax':
+        # Height can always be maximized
+        width = wmax
+        height = hmax
+      else:
+        width, height = paper_A_dimensions(np.int(size[1:]), units='inches',
+                                           orientation=orientation)
+
+      # use width and height to set the figure size
+      width = sf_a*width
+      height = sf_a*height
+
+    else:
+      width = 1.1*shortest_dim_inch
+      height = shortest_dim_inch
+      if size == 'square':
+        pass
+      elif size == 'wide':
+        width *= np.sqrt(2)
+      elif size == 'xwide':
+        width *= 2
+      elif size == 'xxwide':
+        width *= 2*np.sqrt(2)
+      elif size == 'tall':
+        height *= np.sqrt(2)
+      elif size == 'xtall':
+        height *= 2
+      elif size == 'xxtall':
+        height *= 2*np.sqrt(2)
+      elif size == 'optimal':
+        # find the number of axes
+        axs = fig.get_axes()
+        extents = [ax.get_position().extents for ax in axs]
+        x0s, y0s, x1s, y1s = np.array(extents).T
+        nof_rows = int(0.5 + (np.unique(y0s).size + np.unique(y1s).size)/2)
+        nof_cols = int(0.5 + (np.unique(x0s).size + np.unique(x1s).size)/2)
+        width *= nof_cols
+        height *= nof_rows
+      else:
+        raise ValueError("The size given ({:s}) is not valid".format(size))
+
+      # compensate for the dy_inch offset
+      height += dy_inch
+
+  # else: witdth and height are given
+  else:
+    if np.isscalar(size):
+      size = [size]
+
+    width, height = size
+
+  # change the size
+    wh_ratio = width/height
+    if width > wmax:
+      warnings.warn("The width ({:f}) exceeds the screen width ({:f})! Clipped with same aspect!"
+                    .format(width, wmax))
+      width = wmax
+      height = width/wh_ratio
+
+    if height > hmax:
+      height = hmax
+      width = height*wh_ratio
+      warnings.warn("The height ({:f}) exceeds the screen height ({:f})! Clipped with same aspect!"
+                    .format(height, wmax))
+
+  fig.set_size_inches(width, height, forward=True)
+  plt.draw()
+  plt.pause(1e-3)
+
+  if tighten:
+    fig.tight_layout()
+    plt.draw()
+    plt.pause(1e-3)
+
+  # set the top position
+  ytop = 1 - dy_inch/fig.get_size_inches()[1]
+
+  fig.tight_layout()
+  plt.draw()
+  plt.pause(1e-3)
+
+  fig.subplots_adjust(top=ytop)
+  plt.draw()
+  plt.pause(1e-3)
 
   return fig
 
@@ -1227,7 +1528,101 @@ def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None,
   return ax
 
 
-def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=None,
+def add_zoom_inset(ax=None, loc='top left', buffer=0.05, fraction=0.2, zoombox=None,
+                   alpha=1, grid=True, indicate_zoombox=True, **axkwargs):
+  """
+  add an inset for zooming
+  """
+  if np.isscalar(fraction):
+    fraction = [fraction]*2
+
+  # get axees
+  if ax is None:
+    ax = plt.gca()
+
+  if isinstance(loc, str):
+    if loc.find("bottom") > -1 or loc.find("lower") > -1:
+      yb = buffer
+    elif loc.find("top") > -1 or loc.find("upper") > -1:
+      yb = 1. - buffer - fraction[1]
+    else:
+      yb = 0.5 - fraction[1]/2
+
+    if loc.find("left") > -1:
+      xl = buffer
+    elif loc.find("right") > -1:
+      xl = 1. - buffer - fraction[0]
+    else:
+      xl = 0.5 - fraction[0]/2
+
+  # else: it is a fraction of the window where the center is located
+  else:
+    if np.isscalar(loc):
+      loc = [loc]*2
+
+    if np.isclose(0., loc[0]):
+      xl = buffer
+    elif np.isclose(1., loc[0]):
+      xl = 1. - fraction[0] - buffer
+    else:
+      xl = min(1. - fraction[0] - buffer, max(buffer, loc[0] - fraction[0]/2))
+
+    if np.isclose(0., loc[1]):
+      yb = buffer
+    elif np.isclose(1., loc[1]):
+      yb = 1. - fraction[1] - buffer
+    else:
+      yb = min(1. - fraction[1] - buffer, max(buffer, loc[1] - fraction[1]/2))
+
+  # convert to figure coordinates
+  blin_disp = ax.transAxes.transform((xl, yb))
+  trin_disp = ax.transAxes.transform((xl+fraction[0], yb+fraction[1]))
+
+  blin_ax = ax.transAxes.inverted().transform(blin_disp)
+  trin_ax = ax.transAxes.inverted().transform(trin_disp)
+
+  w_ax, h_ax = trin_ax - blin_ax
+
+  ax_inset = ax.inset_axes([*blin_ax, w_ax, h_ax], **axkwargs)
+  # ax_inset = fig.add_axes([*blin_fig, w_fig, h_fig], **axkwargs)
+  ax_inset.patch.set_alpha(alpha)
+  # ax_inset.margins(0.0)
+  ax_inset.grid(grid)
+  ax_inset.set_transform("axes")
+  # ax_inset.set_title("zoom window", fontsize=8, fontweight='bold', backgroundcolor='w')
+
+  props_to_copy = ['color',
+                   'linestyle',
+                   'linewidth',
+                   'marker',
+                   'markersize',
+                   'mfc',
+                   'mec',
+                   'alpha']
+  linelist = ax.get_lines()
+  for ln in linelist:
+    ln_ = ax_inset.plot(ln.get_xdata(), ln.get_ydata())[0]
+    pdict = dict()
+    for prop in props_to_copy:
+      propval = eval("ln.get_{:s}()".format(prop))
+      pdict[prop] = propval
+    ln_.set(**pdict)
+
+  # add data if required
+  if zoombox is not None:
+    xdmin, xdmax, ydmin, ydmax = zoombox
+    ax_inset.set_xlim(left=xdmin, right=xdmax)
+    ax_inset.set_ylim(top=ydmax, bottom=ydmin)
+
+  if indicate_zoombox:
+    ax.indicate_inset_zoom(ax_inset, edgecolor='black')
+  plt.draw()
+  plt.pause(1e-3)
+
+  return ax, ax_inset
+
+
+def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', axfig=None,
                    ha='right', va='top', left_align_lines=True, boxcolor=[0.8, 0.8, 0.8],
                    boxalpha=1., fontweight='normal', fontsize=8, fontname='monospace',
                    fontcolor='k'):
@@ -1241,17 +1636,30 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=N
     if loc.lower().find("right") > -1:
       xpos = 0.98
     elif loc.lower().find("left") > -1:
-      xpos = 0.02
+      xpos = 0.0
+    elif loc.lower().find("center") > -1:
+      xpos = 0.5
 
   if ypos is None:
-    if loc.lower().find("upper") or loc.lower().find("top"):
+    if loc.lower().find("upper") > -1 or loc.lower().find("top") > -1:
       ypos = 0.98
-    elif loc.lower().find("lower") or loc.lower().find("bottom"):
+    elif loc.lower().find("lower") > -1or loc.lower().find("bottom") > -1:
       ypos = 0.02
+    elif loc.lower().find("center") > -1:
+      ypos = 0.5
+
+  print(xpos, ypos)
 
   # get axees
-  if ax is None:
+  if axfig is None:
     ax = plt.gca()
+    fig = ax.figure
+    axfig = fig
+
+  if isinstance(axfig, plt.Figure):
+    transform = axfig.transFigure
+  else:
+    transform = axfig.transAxes
 
   # info is on the right side, calculate the offset
   if ha == 'right' and left_align_lines:
@@ -1264,10 +1672,10 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', ax=N
   text_inset_text = '\n'.join(text_inset_strs_list)
 
   # add the text to the axes
-  txtobj = ax.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
-                   fontname=fontname, ha=ha, va=va,
-                   bbox=dict(boxstyle="Round, pad=0.2", ec='k', fc=boxcolor, alpha=boxalpha),
-                   transform=ax.transAxes, color=fontcolor)
+  txtobj = axfig.text(xpos, ypos, text_inset_text, fontsize=fontsize, fontweight=fontweight,
+                      fontname=fontname, ha=ha, va=va,
+                      bbox=dict(boxstyle="Round, pad=0.2", ec='k', fc=boxcolor, alpha=boxalpha),
+                      transform=transform, color=fontcolor)
 
   plt.draw()
 
@@ -4107,10 +4515,11 @@ def find_blob_edges(blob, threshold=1., return_mask=False):
   return retval
 
 
-def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
-          mark_endpoints=False, endpoints_as_text=False, endpoint_color='k', return_kid=False,
-          split_complex=True, colors='jetmodb', legend_loc='upper right', figtitles=None,
-          txt_rot='auto', **plotkwargs):
+def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
+          mark_endpoints=False, endpoints_as_text=False, endpoint_color='k',
+          split_complex=True, colors='jetmodb', legend=True, legend_loc='upper right',
+          legkwargs=dict(), figtitles=None, txt_rot='auto', margins=0.01, grid=False,
+          datetime_fmt='auto', return_lobjs=False, **plotkwargs):
   """
   a quicklook plot
 
@@ -4119,7 +4528,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
   ax: [ Axes | None | 'h' ], OPTIONAL, default=None
       The axes in which the plots must be created. optiouns are:
       - Axes object --> this will add the plot to an existing axes. plt.gca() also works
-      - None        --> a new plot will be created
+      - None       _arts --> a new plot will be created
       - 'h'         --> the current plot will be held. Hence 'h' for 'hold' (similar to matlab)
   args[1:] : <see matplotlib.pyplot.plot>
              may be 1, 2 or 3 arguments:
@@ -4166,13 +4575,18 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
   ax : axes
        The axes object containing the plots
   """
+  legkwargs_arts = dict(lw=1.5, markersize=6, alpha=1.)
+
+  thini_settings = {0: dict(lw=1.5, markersize=6, alpha=1),
+                    1: dict(lw=1., markersize=2, alpha=0.5),
+                    2: dict(lw=0.5, markersize=0.5, alpha=0.2)}
+
   kwargs = dict()
   if not isinstance(args[-1], str):
-    kwargs = dict(marker='.', linestyle='-')
+    kwargs = dict(marker='.', ls='-')
 
-  if thin:
-    kwargs.update(alpha=0.5, markersize=0.5, lw=0.5)
   kwargs.update(**plotkwargs)
+  legkwargs_arts.update(**plotkwargs)
 
   # if first argument is an axes --> use this axes
   if isinstance(args[0], plt.Axes):
@@ -4194,6 +4608,31 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
   if aspect is not None:
     ax.set_aspect(aspect)
 
+  # convert thin to integer
+  if isinstance(thin, str):
+    if thin == 'auto':
+      thin = 0
+      # check the number of elements in the data
+      nof_points = 1
+      for arg in args:
+        if isinstance(arg, np.ndarray):
+          nof_points_ = arg.size
+        else:
+          nof_points_ = np.array(arg).size
+        nof_points = max(nof_points, nof_points_)
+      # check what to do for a certain amount of points
+      if nof_points > 5000:
+        thin = 1
+        if nof_points > 20000:
+          thin = 2
+    else:
+      raise ValueError("the given value for 'thin' ({}) is not valid".format(thin))
+
+  thinkwargs = thini_settings[int(thin)]
+  if isinstance(thinkwargs, dict):
+    thinkwargs.update(**kwargs)
+    kwargs = thinkwargs
+
   # check if there is an formatting argument given, this is always the last one
   if isinstance(args[-1], str):
     format_str_list = [args[-1]]
@@ -4213,6 +4652,15 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
     ydata = args[1]
   else:
     raise ValueError("There are more than 2 input arguments given ({})".format(len(args)))
+
+  # check if empty
+  if not np.isscalar(ydata) and len(ydata) == 0:
+    warnings.warn("The data set is empty!")
+
+    label = kwargs.pop('label') if 'label' in kwargs else ''
+    lobj = ax.plot([], [], *format_str_list, label=label, **kwargs)[0]
+    if return_lobjs:
+      return ax, lobj
 
   if np.isscalar(ydata):
     ydata = [ydata]
@@ -4240,6 +4688,9 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
       txt_rot = 45.
     else:
       txt_rot = 0.
+
+  # special treatment for x-axis dates
+  is_datetime_data = True if isinstance(np.squeeze(xdata).item(0), dtm.datetime) else False
 
   # special treatment for complex data
   is_complex = np.any([np.iscomplex(ys).sum() > 0 for ys in ydata])
@@ -4282,7 +4733,6 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
       interpolation = 'nearest' if '_' in modifiers else 'linear'
     colors = jetmod(nof_plots, 'vector', bright=bright, invert=invert, negative=negative,
                     interpolation=interpolation)
-  # color_cycler = cycle(colors)
 
   label_list = listify(kwargs.pop('label')) if 'label' in kwargs else ['']*nof_plots
   if is_complex and split_complex:
@@ -4298,8 +4748,10 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
   # how many plots to make?\
   lobjs = []
 
+  # check if it must be thin
+  nof_points = np.array(ydata).size
   for xs, ys, label in zip(xdata, ydata, label_list):
-    lobj = ax.plot(xs, ys, *format_str_list, label=label, **kwargs)[0]
+    lobj = ax.plot(arrayify(xs), arrayify(ys), *format_str_list, label=label, **kwargs)[0]
     lobjs.append(lobj)
 
   if center:
@@ -4324,19 +4776,58 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin=False,
                 alpha=0.5, color=endpoint_color)
 
   is_label_present = np.alltrue([label is not None for label in label_list])
-  if is_label_present:
-    ax.legend(loc=legend_loc)
+  if is_label_present and legend:
+    legkwargs_base = dict(fontsize='small', numpoints=1, scatterpoints=1, **legkwargs)
+    legkwargs_base.update(legkwargs)
+    if legend_loc == 'above':
+      legend_loc = 'lower center'
+      legkwargs_base.update(loc='lower center',
+                            bbox_to_anchor=[0.5, 1.],
+                            ncol=max(5, len(label_list)))
+    else:
+      legkwargs_base.update(loc=legend_loc)
+    leg = ax.legend(**legkwargs_base)
+
+    for legobj in leg.legendHandles:
+      legobj.set_alpha(1)
+      if thin > 0:
+        # if marker is not existing
+        if legobj.get_marker() == '' and legobj.get_linestyle().lower().startswith('none'):
+          legobj.set_marker('o')
+          legobj.set_markersize(2)
+          legobj.set_markerfacecolor(legobj.get_color())
+        else:
+          legobj.set_linewidth(legkwargs_arts['lw'])
+          legobj.set_markersize(legkwargs_arts['markersize'])
+        # pdb.set_trace()
+      # plt.draw()
 
   if figtitles is not None:
     add_figtitles(figtitles)
 
-  # rotate the xtick labels
-  plt.xticks(rotation=txt_rot, ha='right')
-  plt.show(block=False)
-  plt.draw()
+  if is_datetime_data:
+    if datetime_fmt != 'auto':
+      fmt = mdates.DateFormatter(datetime_fmt)
+      ax.xaxis.set_major_formatter(fmt)
+    # ax.figure.autofmt_xdate()
 
-  if return_kid:
-    return ax, lobjs
+  # rotate the xtick labels if not a date (this will be automatically updated)
+  if not np.isclose(txt_rot, 0.):
+    ax.tick_params(axis='x', labelrotation=txt_rot, labelsize='small')
+
+  if margins is not None:
+    ax.margins(margins)
+  # en-, or disable grid
+  ax.grid(grid)
+  plt.show(block=False)
+  plt.pause(1e-4)
+  plt.draw()
+  plt.pause(1e-4)
+
+  if return_lobjs:
+    if len(lobjs) == 1:
+      lobjs = lobjs[0]
+    return (ax, lobjs)
   else:
     return ax
 
@@ -4358,6 +4849,68 @@ def center_plot_around_origin(ax=None, aspect='equal'):
     ax.set_aspect(aspect)
 
   return ax
+
+
+def center_plot(axs=None, axis='auto', tight=False, dist=None):
+  """
+  center a plot around x and or y axes
+
+  tight indicates to take the smallest distance
+  """
+  inds = dict(x=0, y=1)
+  if axs is None:
+    axs = plt.gca()
+
+  axs = listify(axs)
+  # get the extents
+  extents_list = []
+  for ax in axs:
+    extents_list.append(ax.dataLim.extents)
+
+  extarr = np.array(extents_list)
+
+  dist = listify(dist)
+  if len(dist) == 1:
+    dist = dist*2
+
+  tight = listify(tight)
+  if len(tight) == 1:
+    tight = tight*2
+
+  if axis == 'both':
+    ax2mod = ['x', 'y']
+  elif axis == 'auto':
+    # check if the data extends to both sides of the origin
+    ax2mod = []
+    if np.any(extarr[:, 0] < 0.) and np.any(extarr[:, 2] > 0.):
+      ax2mod.append('x')
+    if np.any(extarr[:, 1] < 0.) and np.any(extarr[:, 3] > 0.):
+      ax2mod.append('y')
+  else:
+    ax2mod = [axis]
+
+  for axname in ax2mod:
+    minvals = extarr[:, inds[axname]]
+    maxvals = extarr[:, inds[axname]+2]
+
+    if dist[inds[axname]] is None:
+      if tight[inds[axname]]:
+        dist_ = min(*np.abs(minvals), *np.abs(maxvals))
+      else:
+        dist_ = max(*np.abs(minvals), *np.abs(maxvals))
+    else:
+      dist_ = dist[inds[axname]]
+
+    if axname == 'x':
+      ax.set_xlim(left=-dist_, right=dist_)
+    else:
+      ax.set_ylim(bottom=-dist_, top=dist_)
+
+  plt.show(block=False)
+  plt.draw()
+  plt.pause(1e-3)
+
+  return None
 
 
 def ctform_mat(angles_xyz, translation_xyz, order_rotations, augment=True):
