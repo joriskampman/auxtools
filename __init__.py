@@ -233,14 +233,39 @@ def pick_from_interval(minval, maxval, nof_samples=1):
   return pick
 
 
-def angled(cvals, unwrap=False, axis=-1):
+def angled(cvals, axis=-1, unwrap=False, icenter=None):
   """
   return an angle in degrees
+
+  arguments:
+  ----------
+  cvals : [ array-like | float | int ]
+          A complex value or an array-like of complex values for which the angle in degrees must
+          be calculated
+  axis : int, default=-1
+         The axis along which the phase must be unwrapped. Is moot when unwrap=False
+  unwrap : bool, default=False
+           Whether or not to unwrap the phase. Works with 'icenter' and 'axis'
+  icenter : [ int | None], default=None
+            if not None, the index given on the axis given by 'axis' is set to 0 degrees. the rest
+            is all relative to this index
+  
+  Returns:
+  --------
+  angvals : [ array-like | float ]
+            The angle (whether unwrapped or not) in degrees. Can be a single float or an
+            array-like of floats
   """
   if unwrap:
     angvals = np.rad2deg(np.unwrap(np.angle(cvals), axis=axis))
   else:
     angvals = np.angle(cvals, deg=True)
+
+  if icenter is not None:
+    angvals_center = np.expand_dims(angvals.take(icenter, axis=axis), axis=axis)
+
+    # do the correction
+    angvals -= angvals_center
 
   return angvals
 
@@ -699,11 +724,17 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
   return fig, ax0, axs_sub
 
 
-def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., alpha=1., markersize=2,
-                  replace_dot_with_circle=True, lw=1, buffer_pix=[4, 8], nrows=1):
+def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False, cleanup_pars={},
+                  buffer_pix=[4, 8], nrows=1, ncols=None, remove_axs_legends=True):
   """
   add a legend to a figure
   """
+  cleanup_dict={'lw': 1,
+                'marker': None,
+                'markersize': 2,
+                'alpha': 1.}
+  cleanup_dict.update(cleanup_pars)
+
   if np.isscalar(buffer_pix):
     buffer_pix = [buffer_pix]*2
 
@@ -738,20 +769,21 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., alpha=1., mar
 
   # add the legend
   nof_legends = len(legdata)
-  ncol = int(0.5 + (nof_legends+1)/nrows)
+  if ncols is None:
+    ncols = int(0.5 + (nof_legends+1)/nrows)
   leg = fig.legend(legdata, labels, loc="upper center", bbox_to_anchor=[0.5, 1.],
-                   bbox_transform=trans_sub, borderaxespad=0.2, ncol=ncol,
+                   bbox_transform=trans_sub, borderaxespad=0.2, ncol=ncols,
                    columnspacing=0.4, fontsize=8, edgecolor='k',
                    prop={'size': 7, 'weight': 'bold'})
 
   # modify the legdata and markers
-  for legobj in leg.legendHandles:
-    if replace_dot_with_circle:
-      if legobj.get_marker() == '':
-        legobj.set_marker('o')
-    legobj.set_markersize(markersize)
-    legobj.set_linewidth(lw)
-    legobj.set_alpha(alpha)
+  if cleanup:
+    for legobj in leg.legendHandles:
+      if cleanup_dict['marker'] is not None:
+        legobj.set_marker(cleanup_dict['marker'])
+      legobj.set_markersize(markersize)
+      legobj.set_linewidth(lw)
+      legobj.set_alpha(alpha)
 
   hleg_dis = leg.get_window_extent().height
 
@@ -780,6 +812,12 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., alpha=1., mar
     ytop_rel -= offset_inch/hinch
 
   fig.subplots_adjust(top=ytop_rel)
+
+  # remove the existing legends
+  if remove_axs_legends:
+    axs_in_fig = fig.get_axes()
+    [ax.get_legend().remove() for ax in axs_in_fig if ax.get_legend() is not None]
+    plt.draw()
 
   # activate the settings
   plt.show(block=False)
@@ -896,7 +934,7 @@ def get_screen_dims(units='inches'):
   return w, h
 
 
-def resize_figure(fig=None, size='optimal', sf_a=0.9, orientation='landscape', dy_inch='auto',
+def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', dy_inch='auto',
                   tighten=True, shortest_dim_mm=100., pos=(50, 50)):
   '''
   resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
@@ -969,6 +1007,15 @@ def resize_figure(fig=None, size='optimal', sf_a=0.9, orientation='landscape', d
       height = shortest_dim_inch
       if size == 'square':
         pass
+      elif size == 'large':
+        width *= np.sqrt(2)
+        height *= np.sqrt(2)
+      elif size == 'xlarge':
+        width *= 2
+        height *= 2
+      elif size == 'xxlarge':
+        width *= 2*np.sqrt(2)
+        height *= 2*np.sqrt(2)
       elif size == 'wide':
         width *= np.sqrt(2)
       elif size == 'xwide':
@@ -981,7 +1028,7 @@ def resize_figure(fig=None, size='optimal', sf_a=0.9, orientation='landscape', d
         height *= 2
       elif size == 'xxtall':
         height *= 2*np.sqrt(2)
-      elif size == 'optimal':
+      elif size.startswith('optimal'):
         # find the number of axes
         axs = fig.get_axes()
         extents = [ax.get_position().extents for ax in axs]
@@ -990,6 +1037,16 @@ def resize_figure(fig=None, size='optimal', sf_a=0.9, orientation='landscape', d
         nof_cols = int(0.5 + (np.unique(x0s).size + np.unique(x1s).size)/2)
         width *= nof_cols
         height *= nof_rows
+        if len(size[7:]) > 0:
+          if size[8:].startswith('w'):
+            width *= np.sqrt(2)
+          elif size[8:].startswith('xw'):
+            width *= 2
+          elif size[8:].startswith('xxw'):
+            width *= 2*np.sqrt(2)
+          else:
+            print("unknown size '{:s}'. Simple 'optimal' taken".format(size))
+
       else:
         raise ValueError("The size given ({:s}) is not valid".format(size))
 
