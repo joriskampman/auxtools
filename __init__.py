@@ -129,11 +129,49 @@ def set_autolimit_mode():
 
 
 # CLASSES
-class IncorrectNumberOfFilesFound(Exception):
-  pass
+class IncorrectNumberOfFilesFoundError(Exception):
+  """ Incorrect number of files is found """
+
+
+class NotInvertibleDictError(Exception):
+  """ The dictionary to invert is not invertible (non-unique values most likely) """
 
 
 # FUNCTIONS
+def isnumber(strs):
+  """ check if strings represent a number. Floating point number or other representations count! """
+  allowed_chars = ['.', 'e', '-', '+', 'E']
+  is_scalar = np.isscalar(strs)
+
+  strs = listify(strs)
+  tfs = []
+  for str_ in strs:
+    # remove all other objects
+    cleanstr = remove_chars_from_str(str_, allowed_chars)
+    tfs.append(cleanstr.isnumeric())
+
+  ret = tfs
+  if is_scalar:
+    ret = ret[0]
+
+  return ret
+
+
+def invert_dict(dict):
+  """ invert the dict, keys <--> values """
+  # check if the dict is invertible
+  values = list(dict.values())
+  unq_values = np.unique(values)
+  if len(values) > len(unq_values):
+    raise NotInvertibleDictError("The dict given is not invertible since double values occur")
+
+  invdict = dict.fromkeys(dict.values())
+  for key, value in dict.items():
+    invdict[value] = key
+
+  return invdict
+
+
 def plot_interval_patch(xdata, ydata, axis=0, stat='minmax', ax=None, **plotkwargs):
   """
   plot an interval patch
