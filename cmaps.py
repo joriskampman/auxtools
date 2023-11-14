@@ -19,6 +19,7 @@ matplotlib.colors.LinearSegmentedColormap : creates a colormap object from a 3x1
 '''
 
 import numpy as np
+import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from numpy import ma
 
@@ -70,7 +71,7 @@ class PercNorm(Normalize):
     result : see *matplotlib.colors.Normalize* for more information
     '''
 
-    result, is_scalar = self.process_value(value)
+    result, _ = self.process_value(value)
 
     # set vmin, vmax based on pmin and pmax
     self.vmin = np.nanpercentile(result.ravel(), self.pmin)
@@ -144,8 +145,6 @@ def show_all_colormaps():
   Joris Kampman, Thales NL, 2017
   '''
 
-  import matplotlib.pyplot as plt
-
   nof_steps = 256
   cmaps_to_show = ['jetmod', 'jetgray', 'jetext', 'traffic_light', 'truefalse', 'bgr']
   # cmaps_to_show = ['jetmod']
@@ -153,16 +152,18 @@ def show_all_colormaps():
   mat = np.linspace(0, 1, nof_steps).reshape((1, -1))
   mat = np.vstack((mat, mat))
 
-  fig, axs = plt.subplots(len(cmaps_to_show), 4, num='All defined subplots',
-                          subplot_kw=dict(xticks=[], yticks=[]))
+  _, axs = plt.subplots(len(cmaps_to_show), 4, num='All defined subplots',
+                        subplot_kw=dict(xticks=[], yticks=[]))
 
+  # loop all... they are strings, so using 'eval' is allowed for now
   for iax, cmap_str in enumerate(cmaps_to_show):
-    # axs.append(plt.subplot(gs[iax, 0]))
+    # pylint: disable=eval-used
     cmap = eval('{:s}(nof_steps=nof_steps, interpolation="linear")'.format(cmap_str))
     cmapnnb = eval('{:s}(nof_steps=nof_steps, interpolation="nearest")'.format(cmap_str))
     cmapi = eval('{:s}(nof_steps=nof_steps, interpolation="linear", invert=True)'.format(cmap_str))
     cmapn = eval('{:s}(nof_steps=nof_steps, invert=False, negative=True, interpolation="linear")'
                  .format(cmap_str))
+    # pylint: enable=eval-used
 
     axs[iax, 0].imshow(mat, cmap=cmap, aspect='auto')
     axs[iax, 0].set_title(cmap_str)
@@ -284,7 +285,7 @@ def _gen_cmap_output(marker_array, nof_steps, istep, invert=False, negative=Fals
     return return_vector
 
   # istep is an integer -> give single RGB 3-tuple
-  elif type(istep) == int:
+  elif isinstance(istep, (np.integer, int)):
     # do interpolation and pick index
     posi = np.linspace(0, 1, nof_steps)[istep]
     redi = np.interp(posi, marker_array[:, 0], marker_array[:, 1])
