@@ -6,6 +6,8 @@ or other thales-based links
 """
 
 # import files
+# pylint: disable=wrong-import-order
+# pylint: disable=useless-return
 # basics
 import os
 import numpy as np
@@ -93,7 +95,7 @@ confidence_table.interpolate(method='cubic', inplace=True)
 
 
 # update the display of warnings
-def _formatted_warning(message, category, filename, lineno, file=None, line=None):
+def _formatted_warning(message, category, filename, lineno):
   strbuf = "  "
   strline = "-"*30
   message = ("\"" + str(message).strip() + "\"").replace("\n", "\n" + strbuf + " ")
@@ -120,6 +122,8 @@ def set_warnings_format():
 
 
 def set_autolimit_mode():
+  """ set the autolimit mode to 'round_numbers' to force limits on the axis' min/max """
+
   print("Setting the autolimit_mode to 'round_numbers' to force limits on the axis' min/max .. ",
         end="")
   plt.rcParams['axes.autolimit_mode'] = 'round_numbers'
@@ -1770,13 +1774,16 @@ def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None,
   return ax
 
 
-def add_zoom_inset(ax=None, loc='top left', buffer=0.05, fraction=0.2, zoombox=None,
-                   alpha=1, grid=True, indicate_zoombox=True, **axkwargs):
+def add_zoom_inset(zoombox, ax=None, loc='top left', padding=0.1, buffer=0.08, fraction=0.4,
+                   alpha=0.9, grid=True, indicate_zoombox=True, facecolor=[0.9]*3, **axkwargs):
   """
   add an inset for zooming
   """
   if np.isscalar(fraction):
     fraction = [fraction]*2
+
+  if np.isscalar(buffer):
+    buffer = [buffer]*2
 
   # get axees
   if ax is None:
@@ -1784,16 +1791,16 @@ def add_zoom_inset(ax=None, loc='top left', buffer=0.05, fraction=0.2, zoombox=N
 
   if isinstance(loc, str):
     if loc.find("bottom") > -1 or loc.find("lower") > -1:
-      yb = buffer
+      yb = buffer[1]
     elif loc.find("top") > -1 or loc.find("upper") > -1:
-      yb = 1. - buffer - fraction[1]
+      yb = 1. - buffer[1] - fraction[1]
     else:
       yb = 0.5 - fraction[1]/2
 
     if loc.find("left") > -1:
-      xl = buffer
+      xl = buffer[0]
     elif loc.find("right") > -1:
-      xl = 1. - buffer - fraction[0]
+      xl = 1. - buffer[0] - fraction[0]
     else:
       xl = 0.5 - fraction[0]/2
 
@@ -1803,18 +1810,18 @@ def add_zoom_inset(ax=None, loc='top left', buffer=0.05, fraction=0.2, zoombox=N
       loc = [loc]*2
 
     if np.isclose(0., loc[0]):
-      xl = buffer
+      xl = buffer[0]
     elif np.isclose(1., loc[0]):
-      xl = 1. - fraction[0] - buffer
+      xl = 1. - fraction[0] - buffer[0]
     else:
-      xl = min(1. - fraction[0] - buffer, max(buffer, loc[0] - fraction[0]/2))
+      xl = min(1. - fraction[0] - buffer[0], max(buffer[0], loc[0] - fraction[0]/2))
 
     if np.isclose(0., loc[1]):
-      yb = buffer
+      yb = buffer[1]
     elif np.isclose(1., loc[1]):
-      yb = 1. - fraction[1] - buffer
+      yb = 1. - fraction[1] - buffer[1]
     else:
-      yb = min(1. - fraction[1] - buffer, max(buffer, loc[1] - fraction[1]/2))
+      yb = min(1. - fraction[1] - buffer[1], max(buffer[1], loc[1] - fraction[1]/2))
 
   # convert to figure coordinates
   blin_disp = ax.transAxes.transform((xl, yb))
@@ -1825,7 +1832,7 @@ def add_zoom_inset(ax=None, loc='top left', buffer=0.05, fraction=0.2, zoombox=N
 
   w_ax, h_ax = trin_ax - blin_ax
 
-  ax_inset = ax.inset_axes([*blin_ax, w_ax, h_ax], **axkwargs)
+  ax_inset = ax.inset_axes([*blin_ax, w_ax, h_ax], facecolor=facecolor, **axkwargs)
   # ax_inset = fig.add_axes([*blin_fig, w_fig, h_fig], **axkwargs)
   ax_inset.patch.set_alpha(alpha)
   # ax_inset.margins(0.0)
@@ -1840,21 +1847,52 @@ def add_zoom_inset(ax=None, loc='top left', buffer=0.05, fraction=0.2, zoombox=N
                    'markersize',
                    'mfc',
                    'mec',
-                   'alpha']
+                   'alpha',
+                   'zorder']
   linelist = ax.get_lines()
   for ln in linelist:
     ln_ = ax_inset.plot(ln.get_xdata(), ln.get_ydata())[0]
     pdict = dict()
     for prop in props_to_copy:
-      propval = eval("ln.get_{:s}()".format(prop))
-      pdict[prop] = propval
-    ln_.set(**pdict)
+      propval = plt.getp(ln, prop)
+      if not np.isscalar(propval):
+        propval = listify(propval)
+      plt.setp(ln_, prop, propval)
 
   # add data if required
-  if zoombox is not None:
+  if len(zoombox) == 2:
+    xdmin, xdmax = zoombox
+    # determine ydmin and ydmax automatically
+    linelist = ax.get_lines()
+    if len(linelist) == 0:
+      ydmin, ydmax = ax.get_ylim()
+    else:
+      ydmin = np.inf
+      ydmax = -np.inf
+      for ln in linelist:
+        xdata = ln.get_xdata()
+        tf_valid = (xdata >= xdmin)*(xdata <= xdmax)
+        ydata = ln.get_ydata()
+        ydmin_, ydmax_ = bracket(ydata[tf_valid])
+        ydmin = min(ydmin, ydmin_)
+        ydmax = max(ydmax, ydmax_)
+  else:
     xdmin, xdmax, ydmin, ydmax = zoombox
-    ax_inset.set_xlim(left=xdmin, right=xdmax)
-    ax_inset.set_ylim(top=ydmax, bottom=ydmin)
+
+  # add 10% buffer
+  xdmid = (xdmax + xdmin)/2
+  xdrange = (1 + padding)*(xdmax - xdmin)
+  xdmin = xdmid - xdrange/2
+  xdmax = xdmid + xdrange/2
+
+  # add 10% buffer
+  ydmid = (ydmax + ydmin)/2
+  ydrange = (1 + padding)*(ydmax - ydmin)
+  ydmin = ydmid - ydrange/2
+  ydmax = ydmid + ydrange/2
+
+  ax_inset.set_xlim(left=xdmin, right=xdmax)
+  ax_inset.set_ylim(top=ydmax, bottom=ydmin)
 
   if indicate_zoombox:
     ax.indicate_inset_zoom(ax_inset, edgecolor='black')
