@@ -6,6 +6,7 @@ or other thales-based links
 """
 
 # import files
+# pylint: disable=too-many-lines
 # pylint: disable=wrong-import-order
 # pylint: disable=useless-return
 # basics
@@ -102,6 +103,7 @@ def _formatted_warning(message, category, filename, lineno):
   message = strbuf + message
 
   # get length of top part
+  # pylint: disable=duplicate-string-formatting-argument
   str_top = "{:s} {:s}, {:s}:{:d} {:s}".format(strline, category.__name__,
                                                os.path.basename(filename), lineno, strline)
   nchars_top = len(str_top)
@@ -161,16 +163,16 @@ def isnumber(strs):
   return ret
 
 
-def invert_dict(dict):
+def invert_dict(mydict):
   """ invert the dict, keys <--> values """
   # check if the dict is invertible
-  values = list(dict.values())
+  values = list(mydict.values())
   unq_values = np.unique(values)
   if len(values) > len(unq_values):
     raise NotInvertibleDictError("The dict given is not invertible since double values occur")
 
-  invdict = dict.fromkeys(dict.values())
-  for key, value in dict.items():
+  invdict = dict.fromkeys(mydict.values())
+  for key, value in mydict.items():
     invdict[value] = key
 
   return invdict
@@ -300,7 +302,9 @@ def colorbar(im, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", cbarlabel=''
   if nof_ticks is None:
     cbticks = None
   else:
-    cbticks = np.linspace(pmin, pmax, 11)
+    # not implemented, but must find the full range (pmin to pmax) first and step make the steps
+    # cbticks = np.linspace(pmin, pmax, 11)
+    raise NotImplementedError("Providing the *nof_ticks* parameter is not implemented yet")
 
   if axs is None:
     if fig is None:
@@ -439,7 +443,7 @@ def format_as_si(value, nsig=3, ndec=None, sep=" ", fmt='auto', max_use_level=0,
   """
   print a value as an SI string value
   """
-  val, dct = scale_by_si_prefix(value, max_use_level=max_use_level, scale_values=True)
+  val, dct = scale_by_si_prefix(value, max_use_level=max_use_level)
 
   if force_int:
     val = int(0.5 + val)
@@ -472,7 +476,7 @@ def format_as_si(value, nsig=3, ndec=None, sep=" ", fmt='auto', max_use_level=0,
   return string
 
 
-def scale_by_si_prefix(values, base_pref_on_what='rms', max_use_level=0, scale_values=True):
+def scale_by_si_prefix(values, base_pref_on_what='rms', max_use_level=0):
   """
   return the scaled values and return the prefix
   """
@@ -503,8 +507,11 @@ def scale_by_si_prefix(values, base_pref_on_what='rms', max_use_level=0, scale_v
   # split the dictionary si_prefixes
 
   # get all the actual scaling values (powers of 10)
-  valid_powvals = arrayify([powval for powval in si_prefixes.keys()
-                            if si_prefixes[powval]['use_level'] <= max_use_level])
+  valid_powvals = []
+  for powval, prefdict in si_prefixes.items():
+    if prefdict['use_level'] <= max_use_level:
+      valid_powvals.append(powval)
+  valid_powvals = arrayify(valid_powvals)
 
   # extract the order
   pow2check = np.log10(np.abs(val2check))
@@ -519,20 +526,18 @@ def scale_by_si_prefix(values, base_pref_on_what='rms', max_use_level=0, scale_v
   si_prefix_dict['key'] = fnd_powval
   si_prefix_dict['sf'] = np.power(10., fnd_powval)
 
-  output_list = [si_prefix_dict]
-  if scale_values:
-    scale_factor = np.power(10., fnd_powval)
-    scaled_values = values/scale_factor
-    if return_scalar:
-      scaled_values = scaled_values.item(0)
+  scale_factor = np.power(10., fnd_powval)
+  scaled_values = values/scale_factor
+  if return_scalar:
+    scaled_values = scaled_values.item(0)
 
-    # add to output_list
-    output_list.insert(0, scaled_values)
+  # add to output_list
+  output_list = [scaled_values, si_prefix_dict]
 
   return output_list
 
 
-def dms2angle(dms, angle_units='deg'):
+def dms2angle(dms):
   """
   convert the degree/minute/second format to degrees
   """
@@ -769,7 +774,7 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False
   dpi = fig.get_dpi()
   # get offset and make a transform
   offset_sub = mtrans.ScaledTranslation(0., -dy_inch - buffer_pix[0]/dpi, fig.dpi_scale_trans)
-  trans_sub = (fig.transFigure + offset_sub)
+  trans_sub = fig.transFigure + offset_sub
 
   # add the legend
   nof_legends = len(legdata)
@@ -783,11 +788,12 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False
   # modify the legdata and markers
   if cleanup:
     for legobj in leg.legendHandles:
-      if cleanup_dict['marker'] is not None:
-        legobj.set_marker(cleanup_dict['marker'])
-      legobj.set_markersize(markersize)
-      legobj.set_linewidth(lw)
-      legobj.set_alpha(alpha)
+      if cleanup_pars['marker'] is not None:
+        legobj.set_marker(cleanup_pars['marker'])
+        print("something is not fully correct yet. Please check this when applicable")
+      # legobj.set_markersize(markersize)
+      # legobj.set_linewidth(lw)
+      # legobj.set_alpha(alpha)
 
   hleg_dis = leg.get_window_extent().height
 
@@ -800,7 +806,7 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False
   # correct the dy_inch with the size of the
   dy_inch += buffer_inch + hleg_inch
 
-  winch, hinch = fig.get_size_inches()
+  _, hinch = fig.get_size_inches()
   ytop_rel = 1 - dy_inch/hinch
 
   # check if there is a title present
@@ -819,8 +825,13 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False
 
   # remove the existing legends
   if remove_axs_legends:
-    axs_in_fig = fig.get_axes()
-    [ax.get_legend().remove() for ax in axs_in_fig if ax.get_legend() is not None]
+    # loop all axes
+    for ax in fig.get_axes():
+      # get the legend object
+      legobj = ax.get_legend()
+      # remove if it actually exists
+      if legobj is not None:
+        legobj.remove()
     plt.draw()
 
   # activate the settings
@@ -844,7 +855,7 @@ def add_figtitles(texts, fig=None, xpos_rel=0.5, ypos_rel=1., fontsize_top=12, f
   texts = listify(texts)
 
   # get height
-  winch, hinch = fig.get_size_inches()
+  _, hinch = fig.get_size_inches()
   dpi = fig.get_dpi()
   ppi = 72
 
@@ -985,7 +996,7 @@ def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', d
     dy_inch = hinch - top_inch
 
   # if; maximize
-  wmax, hmax = get_max_a_size_for_display(fig=fig, units='inches', orientation=orientation)
+  wmax, hmax = get_max_a_size_for_display(units='inches', orientation=orientation)
   if isinstance(size, str):
     if size.endswith("maximize"):
       # set figure manager
@@ -1107,14 +1118,14 @@ def strip_common_parts(list_of_strings):
   """
   # strip the beginnings
   (common_start,
-   stripped_from_start) = common_part(list_of_strings, return_uncommon=True, from_end=False)
+   stripped_from_start) = get_common_part(list_of_strings, return_uncommon=True, from_end=False)
   (common_end,
-   stripped) = common_part(stripped_from_start, return_uncommon=True, from_end=True)
+   stripped) = get_common_part(stripped_from_start, return_uncommon=True, from_end=True)
 
   return stripped, common_start, common_end
 
 
-def common_part(list_of_strings, return_uncommon=False, from_end=False):
+def get_common_part(list_of_strings, return_uncommon=False, from_end=False):
   """
   what is the common part in all strings in the list
   """
@@ -1216,7 +1227,8 @@ def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=Fals
   return None
 
 
-def timer(seconds, minutes=0, hours=0, days=0, only_seconds=False, ndec=1, finish_msg="Beeeep beeeep!!"):
+def timer(seconds, minutes=0, hours=0, days=0, only_seconds=False, ndec=1,
+          finish_msg="Beeeep beeeep!!"):
   """ running time either forwards (stopwatch) or backwards (timer) """
   length = os.get_terminal_size().columns
   empty_line = ' '*(length - 10)
@@ -1301,9 +1313,8 @@ def create_wait_message(msg="sssstt! I'm asleep!", nof_blinks=1,
   parts.append(msg)
 
   # blinking
-  for iblink in range(nof_blinks):
-    parts.append(" "*nof_chars)
-    parts.append(msg)
+  to_append = [" "*nof_chars]*nof_blinks
+  parts.append(*to_append)
 
   # loopback
   if loopback:
@@ -1346,7 +1357,7 @@ def inspector(obj2insp, searchfor=None, maxlen=150):
     if isinstance(obj2insp[0], dict):
       inspect_list_of_dicts(obj2insp, fields=searchfor, print_=True)
     else:
-      inspect_object(ob2insp, searchfor=searchfor, maxlen=maxlen)
+      inspect_object(obj2insp, searchfor=searchfor, maxlen=maxlen)
 
   else:
     inspect_object(obj2insp, searchfor=searchfor, maxlen=maxlen)
@@ -1395,8 +1406,7 @@ def inspect_dict(dict_, searchfor=None, maxlen=None):
     elif isinstance(value, object):
       item_for_list = [key, 'object', value.__class__.__name__]
     else:
-      print("huh????")
-      pdb.set_trace()
+      raise TypeError("The type of the value ({}) is not implemented or known".format(type(value)))
 
     list_to_print.append(item_for_list)
 
@@ -1481,8 +1491,7 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
       elif isinstance(prop, object):
         item_for_list = [propname, 'object', prop.__class__.__name__]
       else:
-        print("huh????")
-        pdb.set_trace()
+        raise TypeError("the property type ({}) is not valid".format(type(prop)))
 
       list_to_print.append(item_for_list)
     print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.',
@@ -1507,7 +1516,7 @@ def inspect_list_of_dicts(list_of_dicts, fields=None, print_=False, skip_None=Tr
   fields = listify(fields)
 
   datadict = dict.fromkeys(fields)
-  for key in datadict.keys():
+  for key in datadict:
     datadict[key] = []
 
   strlist = [['index', *deepcopy(fields)]]
@@ -1613,12 +1622,30 @@ def format_matdata_as_dataframe(matdata, fields_to_keep=None):
 def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True):
   """
   interpret a sequence string like '0, 10, 3' or '10.4' or 10:0.1:20'
+
+  arguments:
+  ----------
+  seqstr: str
+          Constains an interpretable string. E.g. piet: '1, 2, 3, 5'
+  lsep: str, default=','
+        The list separator. that is the separator which occurs often and separates the values
+  rsep : str, default=':'
+         The separator which splits the remainder from the list string
+  typefcn : <function>, default=float
+            The function for the values. Default I assume they are all floats
+  check_if_int : bool, default=True
+                 Check if the floats are actually ALL integers. In that case the output is converted
+
+  return:
+  -------
+  seq_values : list
+               All the interpreted values
   """
   # split the string
-  pos_parts_list = seqstr.split(':')
+  pos_parts_list = seqstr.split(rsep)
   if len(pos_parts_list) == 1:
     # see if they are separate values
-    seq_values = np.array([typefcn(pos.strip()) for pos in seqstr.strip().split(',')])
+    seq_values = np.array([typefcn(pos.strip()) for pos in seqstr.strip().split(lsep)])
   elif len(pos_parts_list) == 2:
     begin_, end_ = [typefcn(val) for val in pos_parts_list]
     incr_angle = 1.
@@ -1751,7 +1778,7 @@ def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None,
   if ax is None:
     ax = plt.gca()
   elif ax == 'new':
-    fig, ax = plt.subplots(1, 1)
+    _, ax = plt.subplots(1, 1)
 
   for irow in range(nr):
     if tf_valid[irow, :].sum() > 0:
@@ -1852,7 +1879,6 @@ def add_zoom_inset(zoombox, ax=None, loc='top left', padding=0.1, buffer=0.08, f
   linelist = ax.get_lines()
   for ln in linelist:
     ln_ = ax_inset.plot(ln.get_xdata(), ln.get_ydata())[0]
-    pdict = dict()
     for prop in props_to_copy:
       propval = plt.getp(ln, prop)
       if not np.isscalar(propval):
@@ -1999,7 +2025,7 @@ def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fil
   if ax is None:
     ax = plt.gca()
   elif ax == 'new':
-    fig, ax = plt.subplots(1, 1)
+    _, ax = plt.subplots(1, 1)
 
   t = np.linspace(0, 2*np.pi, nof_pts, endpoint=True)
   eigvals, eigvecs = np.linalg.eig(cov)
@@ -2068,7 +2094,7 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
     elif isinstance(value, str):
       string = strfmt.format(value)
     else:
-      lkjasdf
+      raise TypeError("The value type given ({}) is not recognized".format(type(value)))
 
     return pfx + string + sfx
 
@@ -2117,9 +2143,17 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
   # if not compressed or compressible (after a warning)
   fmtlist = list2glue.copy()
   fcnlist = list2glue.copy()
-  for key in types_conv_dict.keys():
-    fmtlist = [types_conv_dict[key][0] if isinstance(elm, key) else elm for elm in fmtlist]
-    fcnlist = [types_conv_dict[key][1] if isinstance(elm, key) else elm for elm in fcnlist]
+  for type_, (fmt_, fcn_) in types_conv_dict.items():
+    for ielm, (fmt_elm, fcn_elm) in enumerate(zip(fmtlist, fcnlist)):
+      if isinstance(type_, fmt_elm):
+        fmtlist[ielm] = fmt_
+
+      if isinstance(type_, fcn_elm):
+        fcnlist[ielm] = fcn_
+
+  # for type_ in types_conv_dict:
+  #   fmtlist = [types_conv_dict[type_][0] if isinstance(fmt_, type_) else elm for fmt_ in fmtlist]
+  #   fcnlist = [types_conv_dict[type_][1] if isinstance(fcn_, type_) else elm for fcn_ in fcnlist]
 
   output_parts = [fmtstr.format(fcn(elm)) for (fcn, fmtstr, elm)
                   in zip(fcnlist, fmtlist, list2glue)]
@@ -2164,7 +2198,7 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
       output_str_ = print_list(value, pfx='{', sfx='}', floatfmt=floatfmt, intfmt=intfmt,
                                strfmt=strfmt, maxlen=maxlen_list, **short_kws)
     else:
-      if type(value) in types_conv_dict.keys():
+      if type(value) in types_conv_dict:
         fmt = types_conv_dict[type(value)]
       else:
         fmt = '{}'
@@ -2208,7 +2242,7 @@ def extract_value_from_strings(input2check, pattern2match, output_fcn=None, outp
                         G=1e9)
   elif replacements is False:
     replacements = dict()
-  elif isinstance(replacement, dict):
+  elif isinstance(replacements, dict):
     pass
   else:
     raise ValueError("The allowd values for keyword 'replacements' are: 'None', 'False' or 'dict'")
@@ -2268,23 +2302,25 @@ def conv_fmt(pyfmt):
   convert the python string formatting to re formatting
   note that square brackets enclosing means optional
   """
+  # asdfpylint: disable=asdasdfanomalous-backslash-in-string
   pyfmt = pyfmt.replace('+', '\\+')
-  py2re = {'*': '\S+',
-           '%c': '.',
-           '%nc': '.{n}',
-           '%d': '[-+]?\d+',
-           '%e': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
-           '%E': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
-           '%f': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
-           '%g': '[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
-           '$i': '[-+]?(0[xX][\dA-Fa-f]+|0[0-7]*|\d+)',
-           '%o': '[-+]?[0-7]+',
-           '%n': '[0-9_]*',
-           '%w': '[a-zA-z]*',
-           '%u': '\d+',
-           '%s': '\S+',
-           '%x': '[-+]?(0[xX])?[\dA-Fa-f]+',
-           '%X': '[-+]?(0[xX])?[\dA-Fa-f]+'}
+  py2re = {'*': r'\S+',
+           '%c': r'.',
+           '%nc': r'.{n}',
+           '%d': r'[-+]?\d+',
+           '%e': r'[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '%E': r'[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '%f': r'[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '%g': r'[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?',
+           '$i': r'[-+]?(0[xX][\dA-Fa-f]+|0[0-7]*|\d+)',
+           '%o': r'[-+]?[0-7]+',
+           '%n': r'[0-9_]*',
+           '%w': r'[a-zA-z]*',
+           '%u': r'\d+',
+           '%s': r'\S+',
+           '%x': r'[-+]?(0[xX])?[\dA-Fa-f]+',
+           '%X': r'[-+]?(0[xX])?[\dA-Fa-f]+'}
+  # pylint: enable=anomalous-backslash-in-string
 
   # process possible square brackets ([...] becomes (...)?)
 
@@ -2311,8 +2347,8 @@ def conv_fmt(pyfmt):
 
   # initialize the regexp string
   refmt = pyfmt
-  for key in py2re.keys():
-    refmt = refmt.replace(key, py2re[key])
+  for key, value in py2re.items():
+    refmt = refmt.replace(key, value)
 
   return refmt
 
@@ -2394,7 +2430,6 @@ def pconv(dirname):
     conversion_table = {'s:': '/work',
                         'm:': '/home/dq968/',
                         '\\': os.sep}
-    pass
   else:
     raise ValueError("The platform found ({:s}) is not known".format(sys.platform))
 
@@ -2645,7 +2680,7 @@ def check_types_in_array_like(array_like):
   check the type of all elements in an array-like
   """
   types = set()
-  [types.add(type(elm)) for elm in array_like]
+  [types.add(type(elm)) for elm in array_like]  # pylint: disable=expression-not-assigned
 
   return types
 
@@ -2696,7 +2731,6 @@ def color_vector(nof_points, c1, c2, cints=None, icints='equal'):
 
   # handle the positions of the elements
   if icints == 'equal':
-    spacing = nof_points/(nof_ints+1)
     ics = np.linspace(0, nof_points, nof_cs)
 
   # process the indices of the intermediates
@@ -2744,120 +2778,6 @@ def strip_all_spaces(strarrlike_in):
     strarrlike_out = tuple(strarrlike_out)
 
   return strarrlike_out
-
-
-def goto(subject=None, must_make_choice=True):
-  '''
-  goto a certain path belonging to a project. Path is added to sys.path as well
-
-  If *subject=None*, all available `gotos` are shown after which the user may select a subject
-
-  Arguments:
-  ----------
-  subject : str or None, default=None
-            A string indicating the subject or project. Names can be shown when value is None
-  must_make_choice : bool, default=True
-                     If set to True, the user is asked to make a choice based on the list given.
-                     If set to False, only the list is displayed
-
-  Returns:
-  --------
-  None
-  '''
-  def _provide_dict_key():
-
-    print('The following `gotos` are available:\n')
-    for idx, (key, pth) in enumerate(sorted(gotos.items())):
-      # check if path exists
-      if os.path.exists(os.path.join(base, pth[7:])):
-        prefix = '  '
-      else:
-        prefix = '  <<NOT AVAIL.>>'
-      # check if it has an alias
-      if key in full_names.keys():
-        print('{}[{:2d}] {:s} ("{:s}")-> {:s}'.format(prefix, idx, key, full_names[key], pth))
-      else:
-        print('{}[{:2d}] {:s} -> {:s}'.format(prefix, idx, key, pth))
-
-    print('\n<base> = "{}"\n'.format(base))
-
-    if must_make_choice:
-      answer = dinput("Please select a subject by index, *None* is no choice: ", None,
-                      include_default_in_question=True)
-
-      # get key from answer
-      if answer is not None:
-        key = list(sorted(gotos.keys()))[np.int(answer)]
-      else:
-        key = None
-
-    return key
-
-  user = os.environ['USER'].lower()
-
-  # base path
-  if user == 'joris':
-    base = os.path.join(os.environ['HOME'], 'Documents', 'thales')
-  elif user == 'dj754':
-    base = os.path.join(os.environ['HOME'], 'mydoc', 'thales')
-
-  # dictionary of gotos (use full names)
-  gotos = dict(efocus='<base>/non_system_specific/efocus/python/',
-               qr='<base>/non_system_specific/quantum_radar/python/',
-               dsg='<base>/non_system_specific/distributed_signal_generation/python/',
-               jbn='<base>/non_system_specific/jammed_beam_nulling/python/',
-               cc='<base>/non_system_specific/neural_nets/classification_challenge_ext/python/',
-               bgest='<base>/non_system_specific/neural_nets/background_estimation/python/',
-               festive='<base>/non_system_specific/festive/python/',
-               slicer='<base>/non_system_specific/slicer/python/',
-               fla='<base>/flycatcher_mk2/alignment/python/')
-
-  # aliases or abbreviations
-  full_names = dict(qr='quantum radar',
-                    jbn='jammed beam nulling',
-                    dsg='distributed signal generation',
-                    cc='classification challenge',
-                    bgest='background estimation',
-                    fla='flycatcher mk2 alignment')
-
-  if subject is None:  # show contents of dict
-    key = _provide_dict_key()
-
-  else:  # subject is not None
-    if subject in gotos.keys():
-      key = subject
-    elif subject in aliases.keys():
-      key = aliases[subject]
-    else:
-      print('The subject "{}" is not valid key or alias\n'
-            'Press <enter> to continue...'.format(subject))
-      input()  # pseudo-pause
-      key = _provide_dict_key()
-
-  if key is not None:
-    goto_w_base = gotos[key]
-    goto = goto_w_base.replace('<base>', base)
-
-    # check if exists
-    if os.path.exists(goto):
-      # add to path
-      if goto not in sys.path:
-        sys.path.append(goto)
-
-      # change to directory
-      os.chdir(goto)
-      print('\nchanged folder to: ''{}''\n'.format(goto))
-
-      # print .py functions in dir
-      print('The following .py files are found:')
-      for file in os.listdir():
-        if file.endswith('.py'):
-          print(' - ', file)
-
-    else:
-      raise ValueError('The path "{}" does not exist'.format(goto))
-
-  return None
 
 
 def select_file(**options):
@@ -3007,6 +2927,7 @@ def select_folder(**options):
 
 
 def val2ind(pos, spacing=None, center=False):
+  """ get the index where the value is found """
 
   posm = pos - pos.min()
 
@@ -3211,8 +3132,8 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default', max_nof_p
   fs_ = fs/f1p
 
   signal_unbias = signal - np.mean(signal)
-  freqs, Ydb_debias = spectrum(signal_unbias, fs=fs_, center_zero=False, scaling='default',
-                               full=False, makeplot=False, dB=True)
+  freqs, Ydb_debias, _ = spectrum(signal_unbias, fs=fs_, center_zero=False, scaling='default',
+                                  full=False, makeplot=False, dB=True)
 
   # calculate the minimum distance between samples
   dP_per_sample = fs_/(2.*nof_samples)
@@ -3260,8 +3181,8 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default', max_nof_p
   peakvals -= offset
 
   if makeplot:
-    if 'ax' in plot_kwargs.keys():
-      ax = plot_kwargs['ax']
+    if 'ax' in plotkwargs:
+      ax = plotkwargs['ax']
     else:
       fig = plt.figure(figname("spectrum"))
       ax = fig.add_subplot(111)
@@ -3276,8 +3197,8 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default', max_nof_p
       else:
         ax.set_ylabel("Power [dB]")
 
-    xs, ys = spectrum(signal, fs=fs_, center_zero=False, scaling=scaling, full=False,
-                      dB=True, makeplot=False)
+    xs, ys, _ = spectrum(signal, fs=fs_, center_zero=False, scaling=scaling, full=False,
+                         dB=True, makeplot=False)
 
     ax.plot(xs, Ydb_debias - offset, 'k--')
     ax.plot(xs, ys, 'b-')
@@ -3355,7 +3276,7 @@ def print_struct_array(arr, varname='', prefix='| ', verbose=True,
 
 def _print_struct_array_compact(arr, prefix='| ', level=1, linecount=0,
                                 is_singleton=True, singinfo=dict(line=0, name=None),
-                                output_array=None, flat=False):
+                                output_array=None):
   '''
   Print the structured array structure and field names. In case the values are scalars or strings
   this value is displayed. Otherwise the shape and the data type are shown.
@@ -3422,8 +3343,7 @@ def _print_struct_array_compact(arr, prefix='| ', level=1, linecount=0,
   # it is a leave!
   if is_leave:
     # NUMERICAL
-    if type(arr) in [float, complex, np.float_, np.float16, np.float32, np.float64, np.float128,
-                     np.complex64, np.complex128, np.complex256]:
+    if isinstance(arr, (float, np.floating)):
       type_ = type(arr).__name__
       if is_singleton:
         _print(': {:.2} ({})'.format(arr, type_), output_array=output_array)
@@ -3432,7 +3352,7 @@ def _print_struct_array_compact(arr, prefix='| ', level=1, linecount=0,
                output_array=output_array)
 
     # INT
-    elif type(arr) is int:
+    elif isinstance(arr, (np.integer, int)):
       type_ = type(arr).__name__
       if is_singleton:
         _print(': {:d} ({})'.format(arr, type_), output_array=output_array)
@@ -3441,7 +3361,7 @@ def _print_struct_array_compact(arr, prefix='| ', level=1, linecount=0,
                output_array=output_array)
 
     # STRING
-    elif type(arr) is str:
+    elif isinstance(arr, str):
       type_ = 'str'
       if is_singleton:
         _print(': "{}" ({})'.format(arr, type_), output_array=output_array)
@@ -3450,11 +3370,10 @@ def _print_struct_array_compact(arr, prefix='| ', level=1, linecount=0,
                output_array=output_array)
 
     # NDARRAY
-    elif type(arr) is np.ndarray:
+    elif isinstance(arr, np.ndarray):
       type_ = type(arr.ravel()).__name__
       if is_singleton:
-        if type(arr[0]) in [float, complex, np.float_, np.float16, np.float32, np.float64,
-                            np.float128, np.complex64, np.complex128, np.complex256]:
+        if isinstance(arr[0], (float, complex, np.floating, np.complexfloating)):
           _print(': {} ({}{}) '.format(subset_str(arr, '{:0.2}'), arr.shape, type_),
                  output_array=output_array)
         else:
@@ -3533,8 +3452,8 @@ def _print_struct_array_flat_compact(arr, substr='<var>', is_singleton=True, out
   # it is a leave!
   if is_leave:
     # NUMERICAL
-    if type(arr) in [float, complex, np.float_, np.float16, np.float32, np.float64, np.float128,
-                     np.complex64, np.complex128, np.complex256]:
+    if isinstance(arr, (float, complex, np.float_, np.float16, np.float32, np.float64, np.float128,
+                        np.complex64, np.complex128, np.complex256)):
       type_ = type(arr).__name__
       if is_singleton:
         endstr = ': {:.2} ({})'.format(arr, type_)
@@ -3542,7 +3461,7 @@ def _print_struct_array_flat_compact(arr, substr='<var>', is_singleton=True, out
         endstr = ': ... ({})'.format(type_)
 
     # INT
-    elif type(arr) is int:
+    elif isinstance(arr, int):
       type_ = type(arr).__name__
       if is_singleton:
         endstr = ': {:d} ({})'.format(arr, type_)
@@ -3550,7 +3469,7 @@ def _print_struct_array_flat_compact(arr, substr='<var>', is_singleton=True, out
         endstr = ': ... ({})'.format(type_)
 
     # STRING
-    elif type(arr) is str:
+    elif isinstance(arr, str):
       type_ = 'str'
       if is_singleton:
         endstr = ': "{}" ({})'.format(arr, type_)
@@ -3558,7 +3477,7 @@ def _print_struct_array_flat_compact(arr, substr='<var>', is_singleton=True, out
         endstr = ': ... ({})'.format(type_)
 
     # NDARRAY
-    elif type(arr) is np.ndarray:
+    elif isinstance(arr, np.ndarray):
       type_ = type(arr.ravel()).__name__
       if is_singleton:
         if type(arr[0]) in [float, complex, np.float_, np.float16, np.float32, np.float64,
@@ -3639,10 +3558,10 @@ def _print_struct_array_full(arr, prefix='| ', level=1, linecount=0, output_arra
   # it is a leave!
   if is_leave:
     # _print(type(arr))
-    if type(arr) in [float, int, complex]:
+    if isinstance(arr, (float, int, complex)):
       type_ = type(arr).__name__
       _print(': {} ({})'.format(arr, type_), output_array=output_array)
-    elif type(arr) is np.ndarray:
+    elif isinstance(arr, np.ndarray):
       type_ = type(arr.ravel()).__name__
       if arr.ndim == 0:
         _print(': {} ({:d}D {}'.format(arr[()], arr.ndim, type_), output_array=output_array)
@@ -3651,7 +3570,7 @@ def _print_struct_array_full(arr, prefix='| ', level=1, linecount=0, output_arra
           _print(': {} ({:d}D {})'.format(arr, arr.ndim, type_), output_array=output_array)
         else:
           _print(': {} ({:d}D {})'.format(arr.shape, arr.ndim, type_), output_array=output_array)
-    elif type(arr) is str:
+    elif isinstance(arr, str):
       type_ = 'str'
       _print(': "{}" ({})'.format(arr, type_), output_array=output_array)
     elif type(arr).__name__ == 'MatlabFunction':
@@ -3710,10 +3629,10 @@ def _print_struct_array_flat_full(arr, substr='<var>', output_array=None, lineco
 
   # it is a leave!
   if is_leave:
-    if type(arr) in [float, int, complex]:
+    if isinstance(arr, (float, int, complex)):
       type_ = type(arr).__name__
       endstr = (': {} ({})'.format(arr, type_))
-    elif type(arr) is np.ndarray:
+    elif isinstance(arr, np.ndarray):
       type_ = type(arr.ravel()).__name__
       # endstr = ('{}'.format(arr[:4]), end='')
       if arr.ndim == 0:
@@ -3723,7 +3642,7 @@ def _print_struct_array_flat_full(arr, substr='<var>', output_array=None, lineco
           endstr = (': {} ({:d}D {})'.format(arr, arr.ndim, type_))
         else:
           endstr = (': {} ({:d}D {})'.format(arr.shape, arr.ndim, type_))
-    elif type(arr) is str:
+    elif isinstance(arr, str):
       type_ = 'str'
       endstr = (': "{}" ({})'.format(arr, type_))
     elif type(arr).__name__ == 'MatlabFunction':
@@ -3784,20 +3703,20 @@ def subset_str(arr, fmt='{}', nof_at_start=2, nof_at_end=1):
 
   '''
   min_req_elms = nof_at_start + nof_at_end + 1
-  if type(arr) in [list, tuple]:
+  if isinstance(arr, (list, tuple)):
     arrsize = len(arr)
-  elif type(arr) is np.ndarray:
+  elif isinstance(arr, np.ndarray):
     arrsize = arr.size
 
   if arrsize <= min_req_elms:
-    subset_str = '[' + ', '.join([fmt.format(elm) for elm in arr]) + ']'
+    subset_str_new = '[' + ', '.join([fmt.format(elm) for elm in arr]) + ']'
   else:
     subarr_start = ', '.join([fmt.format(elm) for elm in arr[:nof_at_start]])
     subarr_end = ', '.join([fmt.format(elm) for elm in arr[-nof_at_end:]])
 
-    subset_str = '[' + subarr_start + ',... ,' + subarr_end + ']'
+    subset_str_new = '[' + subarr_start + ',... ,' + subarr_end + ']'
 
-  return subset_str
+  return subset_str_new
 
 
 def extent(xvec, yvec):
@@ -3895,7 +3814,7 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   requested
   '''
 
-  def pressed_return(event):
+  def pressed_return():
     master.quit()
 
     return None
@@ -3953,7 +3872,7 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   try:
     # list comprehension to get output list
     out = [tkvar[irow].get() for irow in np.arange(nof_rows)]
-  except:  # noqa
+  except Exception:  # pylint: disable=broad-exception-caught
     print('unknown exception raised. None returned')
     return None
 
@@ -4027,9 +3946,9 @@ def phase2snr(phase, phase_units='rad', snr_units='db', mode='calc', nof_samples
 
   '''
 
-  if type(phase) in [list, tuple]:
+  if isinstance(phase, (list, tuple)):
     phase = np.array(phase)
-  elif type(phase) is np.ndarray:
+  elif isinstance(phase, np.ndarray):
     pass
   else:
     phase = np.array(phase)
@@ -4055,7 +3974,7 @@ def phase2snr(phase, phase_units='rad', snr_units='db', mode='calc', nof_samples
   elif mode == 'calc':
     snr = 1 / (np.tan(np.abs(phase))**2)
   else:
-    raise ValueError('the *mode* keyword argument only accepts values ''calc'' and ''sim''')
+    raise ValueError("the *mode* keyword argument only accepts values 'calc' and 'sim'")
 
   if snr_units == 'db':
     snr = 10 * np.log10(snr)
@@ -4068,7 +3987,7 @@ def phase2snr(phase, phase_units='rad', snr_units='db', mode='calc', nof_samples
   return snr
 
 
-def snr2phase(snr, snr_units='db', phase_units='rad', mode='calc', nof_samples=1e6):
+def snr2phase(snr, snr_units='db', phase_units='rad', mode='calc'):
   '''
   Computates the phase sigma related to a certain SNR
 
@@ -4093,7 +4012,7 @@ def snr2phase(snr, snr_units='db', phase_units='rad', mode='calc', nof_samples=1
 
   if type(snr) in [list, tuple]:
     snr = np.array(snr)
-  elif type(snr) is np.ndarray:
+  elif isinstance(snr, np.ndarray):
     pass
   else:
     snr = np.array(snr)
@@ -4107,11 +4026,11 @@ def snr2phase(snr, snr_units='db', phase_units='rad', mode='calc', nof_samples=1
                      .format(snr_units))
 
   if mode == 'sim':
-    raise NotImplementedError('The mode ''sim'' is not implemented yet.')
+    raise NotImplementedError("The mode 'sim' is not implemented yet.")
   elif mode == 'calc':
     phase = np.abs(np.arctan(1 / snr))
   else:
-    raise ValueError('the *mode* keyword argument only accepts values ''calc'' and ''sim''')
+    raise ValueError("the *mode* keyword argument only accepts values 'calc' and 'sim'")
 
   if phase_units == 'rad':
     pass
@@ -4251,15 +4170,15 @@ def figname(figname_base):
   '''
 
   # create figure
-  figname = figname_base
+  figname_new = figname_base
   counter = 1
 
   # check if name exists
-  while plt.fignum_exists(figname):
-    figname = figname_base + '[{}]'.format(counter)
+  while plt.fignum_exists(figname_new):
+    figname_new = figname_base + '[{}]'.format(counter)
     counter += 1
 
-  return figname
+  return figname_new
 
 
 def db(linval):
@@ -4337,7 +4256,7 @@ def logmod(x, multiplier=20):
   # catch the runtime warning
   with np.errstate(divide='ignore'):
     output = multiplier*np.log10(np.abs(x))
-  
+
   return output
 
 
@@ -4443,11 +4362,11 @@ def filter_gains(coefs, axis=-1, scale='db'):
 
   # calculate noise gain
   noise_gain = np.sum(np.abs(coefs)**2, axis=axis)
-  signal_gain = (np.abs(coefs).sum(axis=axis)**2)
-  snr_gain = signal_gain/noise_gain
+  signal_gain_est = (np.abs(coefs).sum(axis=axis)**2)
+  snr_gain = signal_gain_est/noise_gain
 
   gains = {'noise': noise_gain,
-           'signal': signal_gain,
+           'signal': signal_gain_est,
            'snr': snr_gain}
 
   if scale == 'lin':
@@ -4590,7 +4509,7 @@ def paper_A_dimensions(index, units="m", orientation='landscape'):
   return w, h
 
 
-def get_max_a_size_for_display(fig=None, orientation='landscape', nof_monitors='auto',
+def get_max_a_size_for_display(orientation='landscape', nof_monitors='auto',
                                units='inches'):
   """
   get the maximum size with A-ratio that can be displayed
@@ -4797,7 +4716,7 @@ def power2rms(power, power_units='lin'):
   return np.sqrt(power)
 
 
-def exp_fast(data):
+def exp_fast(data):  # pylint: disable=unused-argument
   """
   calculates the fast exp via numexpr module
   """
@@ -4869,7 +4788,7 @@ def find_blob_edges(blob, threshold=1., return_mask=False):
 
 def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
           mark_endpoints=False, endpoints_as_text=False, endpoint_color='k',
-          split_complex=True, colors='jetmodb', legend=True, legend_loc='upper right',
+          split_complex_vals=True, colors='jetmodb', legend=True, legend_loc='upper right',
           legkwargs=dict(), figtitles=None, txt_rot='auto', margins=0.01, grid=False,
           datetime_fmt='auto', return_lobjs=False, **plotkwargs):
   """
@@ -4913,7 +4832,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
                    The color of the endpoints
   return_kid : bool, default=False
                whether or not to not only return the axes, but also the line objects themselves
-  split_complex : bool, default=False
+  split_complex_vals : bool, default=False
                   Whether or not to split the data into 2 graphs: the real and complex valued data
 
   **kwargs : dictionary
@@ -5050,7 +4969,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
     # split the real and imaginary parts into separate graphs
     xdata_ext = []
     ydata_ext = []
-    if split_complex:
+    if split_complex_vals:
       for xs, ys in zip(xdata, ydata):
         xdata_ext.append(xs)
         ydata_ext.append(np.real(ys))
@@ -5089,7 +5008,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   label_list = listify(kwargs.pop('label')) if 'label' in kwargs else ['']*nof_plots
   # change None to ''
   label_list = ['' if label is None else label for label in label_list]
-  if is_complex and split_complex:
+  if is_complex and split_complex_vals:
     label_ext = []
     colors = ['r', 'b']
     for label in label_list:
@@ -5256,9 +5175,11 @@ def center_plot(axs=None, axis='auto', tight=False, dist=None):
       dist_ = dist[inds[axname]]
 
     if axname == 'x':
-      ax.set_xlim(left=-dist_, right=dist_)
+      for ax in axs:
+        ax.set_xlim(left=-dist_, right=dist_)
     else:
-      ax.set_ylim(bottom=-dist_, top=dist_)
+      for ax in axs:
+        ax.set_ylim(bottom=-dist_, top=dist_)
 
   plt.show(block=False)
   plt.draw()
@@ -5545,12 +5466,12 @@ def str2timedelta(numstr):
   elif numstr.endswith('s'):
     seconds = val
   else:
-    raise ValueError("The string *{%s}* does not end with a valid character".format(numstr))
+    raise ValueError("The string '{:s}' does not end with a valid character".format(numstr))
 
-  dt_delta = dt.timedelta(days=days,
-                          hours=hours,
-                          minutes=minutes,
-                          seconds=seconds)
+  dt_delta = dtm.timedelta(days=days,
+                           hours=hours,
+                           minutes=minutes,
+                           seconds=seconds)
 
   return dt_delta
 
@@ -5564,7 +5485,8 @@ def _convert_to_list_of_tuples(input_):
     return None
 
   if isinstance(input_, list):
-    for item in range(len(input_)):
+    for item, _ in enumerate(input_):
+    # for item in range(len(input_)):
       if isinstance(input_[item], str):
         input_[item] = (input_[item],)
 
@@ -5677,17 +5599,14 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
                  A list of variable names which contain the substrings. In case there is more than
                  one, it is a list of lists of strs
   """
-  class RequestedOutputCountError(Exception):
-    pass
-
   class ShortestElementTakenWarning(UserWarning):
-    pass
+    """ the shortest element of multiple found is taken (warning) """
 
   class EmptyListReturnedWarning(UserWarning):
-    pass
+    """ empty list is returned warning """
 
   class NothingFoundError(Exception):
-    pass
+    """ nothing found error """
 
   if substrs is None:
     return []
@@ -5760,8 +5679,9 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
           # find shortest
           isort = np.argsort([len(elm) for elm in list2search_fnd])
           output = arrayify(output)[isort[:nreq]].tolist()
-          warnings.warn("{:d} elements found, while {:d} was requested. The shortest is/are taken! Beware"
-                        .format(ifnd.size, nreq), category=ShortestElementTakenWarning)
+          warnings.warn("{:d} elements found, while {:d} was requested.".format(ifnd.size, nreq)
+                        + "The shortest is/are taken! Beware",
+                        category=ShortestElementTakenWarning)
         else:
           output = np.array([])
           warnings.warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware"
@@ -5834,7 +5754,7 @@ def modify_strings(strings, globs=None, specs=None):
       modstrings = [re.sub(replace, by, str_, flags=re.I).strip() for str_ in modstrings]
 
   if specs is not None:
-    for irepl, reptup in enumerate(specs):
+    for reptup in specs:
       if len(reptup) == 2:
         reptup = (*reptup, 'all')
 
@@ -5881,7 +5801,7 @@ def improvedshow(matdata, clabels=None, rlabels=None, show_values=True, fmt="{:0
 
   ax.grid(which='minor', linewidth=1)
 
-  if 'aspect' not in kwargs.keys():
+  if 'aspect' not in kwargs:
     kwargs['aspect'] = 'auto'
   # show the values in the matrix
   if show_values:
@@ -5965,8 +5885,7 @@ def get_file(filepart=None, dirname=None, ext=None):
   return filename
 
 
-def wrap_string(string, maxlen, break_at_space=True, glue=True, offset=None,
-                offset_str=' '):
+def wrap_string(string, maxlen, glue=True, offset=None, offset_str=' '):
   """
   break a string and introduce a newline (\n)
   """
@@ -6081,7 +6000,7 @@ def select_from_list(list_, multi=False, return_indices=False):
         indices
   """
   class MultiError(Exception):
-    pass
+    """ error when only a single selection is valid, but multiple are found """
 
   for idx, item in enumerate(list_):
     print("  [{:2d}] {}".format(idx, item))
@@ -6146,7 +6065,7 @@ def markerline(marker, length=None, text=None, doprint=True, edge=None):
   lsize1 = (length - 2 - offset)//2
   lsize2 = length - 2 - lsize1 - offset
 
-  line = "{:s}{:s}{:s}{:s}{:s}".format(edge, lsize1*marker, text, lsize2*marker, edge)
+  line = "{edge}{:s}{:s}{:s}{edge}".format(lsize1*marker, text, lsize2*marker, edge=edge)
 
   if doprint:
     print(line)
@@ -6212,7 +6131,8 @@ def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True
   if hline_at_index is not None:
     nof_lines = len(lines)
     hline = hline_marker*(min(maxlen, total_size_needed) + len(sep))
-    hline_at_indices_lst = [nof_lines + idx + 1 if idx < 0 else idx for idx in listify(hline_at_index)]
+    hline_at_indices_lst = [nof_lines + idx + 1 if idx < 0 else idx
+                            for idx in listify(hline_at_index)]
     # get the indices backwards
     hlines_at_indices = np.sort(hline_at_indices_lst)[-1::-1]
     for iline in hlines_at_indices:
@@ -6227,7 +6147,7 @@ def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True
 
 def pixels_under_line(abcvec, xvec, yvec, mode='ax+by=c', upscale_factor=4):
   """
-  find all the pixels under a line
+  find all the pixels under a line for a line equation
   """
   dx = np.mean(np.diff(xvec))
   dy = np.mean(np.diff(yvec))
@@ -6281,13 +6201,14 @@ def pixels_under_line(abcvec, xvec, yvec, mode='ax+by=c', upscale_factor=4):
   xvecnr = np.int_(xvecn + 0.5)
   yvecnr = np.int_(yvecn + 0.5)
 
+  # pylint: disable=unsubscriptable-object
   Ivalid_y = np.argwhere([elm in yvecnr for elm in yfndr]).ravel()
   Ipix_y = np.ravel_multi_index((yfndr[Ivalid_y], xvecnr[Ivalid_y]), size_grid)
 
   # Check all y positions and find corresponding x positions
   Ivalid_x = np.argwhere([elm in xvecnr for elm in xfndr]).ravel()
   Ipix_x = np.ravel_multi_index((yvecnr[Ivalid_x], xfndr[Ivalid_x]), size_grid)
-
+  # pylint: enable=unsubscriptable-object
   # output
   Ipix = np.union1d(Ipix_x, Ipix_y)
 
@@ -6578,7 +6499,7 @@ def intersections_line_and_box(bl, tr, line, line_fmt='ax+by=c'):
   # make the output dictionary
   is_inside = False
   outdict = dict.fromkeys(linecoefs.keys())
-  for name, coefs in linecoefs.items():
+  for name in linecoefs:
     p_int = intersection_finite_and_infinite_lines(line_, *sectionedges[name])
     outdict[name] = p_int
 
