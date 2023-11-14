@@ -1212,7 +1212,54 @@ def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=Fals
   return None
 
 
-def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=3, loopback=True):
+def timer(seconds, minutes=0, hours=0, days=0, only_seconds=False, ndec=1, finish_msg="Beeeep beeeep!!"):
+  """ running time either forwards (stopwatch) or backwards (timer) """
+  length = os.get_terminal_size().columns
+  empty_line = ' '*(length - 10)
+
+  tstop = ((days*24 + hours)*60 + minutes)*60 + seconds
+  tic = time.time()
+  # loop if stop time is not passed yet
+  while True:
+    telapsed = time.time() - tic
+    ttogo = tstop - telapsed
+    if only_seconds:
+      print("\r{:0.{:d}f} seconds".format(ttogo, ndec), end="\r", flush=True)
+    else:
+      days = int(ttogo/86400)
+      hours = int((ttogo - days*86400)/3600)
+      minutes = int((ttogo - days*86400 - hours*3600)/60)
+      seconds = (ttogo - days*86400 - hours*3600 - minutes*60)
+
+      # build string
+      daystr = "{:d} days, ".format(days)
+      hourstr = "{:d} hours, ".format(hours)
+      minstr = "{:d} minutes, ".format(minutes)
+      secstr = "{:0.{:d}f} seconds".format(seconds, ndec)
+      if days > 0:
+        telstr = daystr + hourstr + minstr + secstr
+      else:
+        if hours > 0:
+          telstr = hourstr + minstr + secstr
+        else:
+          if minutes > 0:
+            telstr = minstr + secstr
+          else:
+            telstr = secstr
+      print("\r" + empty_line, end="\r", flush=True)
+      print("\r{:s}".format(telstr), end="\r", flush=True)
+
+    # check if loop must be broken
+    if telapsed >= tstop:
+      print("\r" + empty_line, end="\r", flush=True)
+      print("\r{:s}".format(finish_msg), end="\r", flush=True)
+      break
+    time.sleep(0.025)
+
+  return None
+
+
+def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=1, loopback=False):
   """
   a sleep function that shows a wait message
   """
@@ -1227,7 +1274,7 @@ def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=3, loopback=Tru
 
   tic = time.time()
   while time.time() - tic < sleeptime:
-    print(next(wm), end='\r')
+    print("\r" + next(wm), end='\r', flush=True)
     time.sleep(polling_time)
 
   # newline after message
@@ -1236,7 +1283,7 @@ def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=3, loopback=Tru
   return None
 
 
-def create_wait_message(msg="All hail the Star Trek queen: Seven of Nine !!", nof_blinks=3,
+def create_wait_message(msg="sssstt! I'm asleep!", nof_blinks=1,
                         loopback=True):
   """
   display a wait message
@@ -2019,8 +2066,11 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
         maxval = int(maxval)
       else:
         fmt = floatfmt
-      output_string = (pfx + fmt.format(minval) + ":" + fmt.format(step) +
-                       ":" + fmt.format(maxval) + sfx)
+      if np.isclose(1, step):
+        output_string = (pfx + fmt.format(minval) + ":" + fmt.format(maxval) + sfx)
+      else:
+        output_string = (pfx + fmt.format(minval) + ":" + fmt.format(step) +
+                        ":" + fmt.format(maxval) + sfx)
       return output_string
     else:
       warnings.warn("This list cannot be compressed in min:step:max, "
@@ -2140,6 +2190,8 @@ def extract_value_from_strings(input2check, pattern2match, output_fcn=None, outp
   else:
     values = []
     for valstr in value_strings:
+      if valstr is None:
+        continue
       if valstr.startswith('-') or valstr.startswith('+'):
         valstr_ = valstr[1:]
       else:
@@ -2227,7 +2279,7 @@ def conv_fmt(pyfmt):
   return refmt
 
 
-def find_pattern(pattern, list_of_strings, nof_expected=None, nof_expected_mode='exact',
+def find_pattern(pattern, list_of_strings, nreq=None, nreq_mode='exact',
                  squeeze=True):
   """
   find a (python) formatted file name in a directory
@@ -2245,25 +2297,25 @@ def find_pattern(pattern, list_of_strings, nof_expected=None, nof_expected_mode=
   # throw nof found in variable, necessary for possible post processing
   nof_found = len(valid_filenames)
 
-  if nof_expected is None:
+  if nreq is None:
     pass
 
-  elif isinstance(nof_expected, (int, np.integer)):
+  elif isinstance(nreq, (int, np.integer)):
     errstr = ("The expected number of found files is ({}), but only ({}) are found. "
-              .format(nof_expected, nof_found)
-              + "This is incompatible with *nof_expected_mode*=`{}`".format(nof_expected_mode))
-    if nof_found == nof_expected:
+              .format(nreq, nof_found)
+              + "This is incompatible with *nreq_mode*=`{}`".format(nreq_mode))
+    if nof_found == nreq:
       pass
-    elif nof_found > nof_expected:
-      if nof_expected_mode == 'min':
+    elif nof_found > nreq:
+      if nreq_mode == 'min':
         pass
-      elif nof_expected_mode in ('max', 'exact'):
-        raise IncorrectNumberOfFilesFound(errstr)
-    elif nof_found < nof_expected:
-      if nof_expected_mode == 'max':
+      elif nreq_mode in ('max', 'exact'):
+        raise IncorrectNumberOfFilesFoundError(errstr)
+    elif nof_found < nreq:
+      if nreq_mode == 'max':
         pass
-      elif nof_expected_mode in ('min', 'exact'):
-        raise IncorrectNumberOfFilesFound(errstr)
+      elif nreq_mode in ('min', 'exact'):
+        raise IncorrectNumberOfFilesFoundError(errstr)
     else:
       raise FileNotFoundError(errstr)
 
@@ -2276,7 +2328,7 @@ def find_pattern(pattern, list_of_strings, nof_expected=None, nof_expected_mode=
   return valid_filenames
 
 
-def find_filename(filepattern, dirname, nof_expected=1, nof_expected_mode='exact',
+def find_filename(filepattern, dirname, nreq=1, nreq_mode='exact',
                   squeeze=True):
   """
   find a (python) formatted file name in a directory
@@ -2284,8 +2336,8 @@ def find_filename(filepattern, dirname, nof_expected=1, nof_expected_mode='exact
   # get the contents of the folder
   contents = os.listdir(dirname)
 
-  found_strings = find_pattern(filepattern, contents, nof_expected=nof_expected,
-                               nof_expected_mode=nof_expected_mode, squeeze=squeeze)
+  found_strings = find_pattern(filepattern, contents, nreq=nreq,
+                               nreq_mode=nreq_mode, squeeze=squeeze)
 
   return found_strings
 
@@ -4997,6 +5049,8 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
                     interpolation=interpolation)
 
   label_list = listify(kwargs.pop('label')) if 'label' in kwargs else ['']*nof_plots
+  # change None to ''
+  label_list = ['' if label is None else label for label in label_list]
   if is_complex and split_complex:
     label_ext = []
     colors = ['r', 'b']
@@ -5007,7 +5061,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
     label_list = label_ext
 
   ax.set_prop_cycle(color=colors)
-  # how many plots to make?\
+  # how many plots to make?
   lobjs = []
 
   # check if it must be thin
@@ -5037,7 +5091,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
         ax.plot(xs[-1], ys[-1], 'o', mfc='none', markersize=10, markeredgewidth=2,
                 alpha=0.5, color=endpoint_color)
 
-  is_label_present = np.alltrue([label is not None for label in label_list])
+  is_label_present = np.alltrue([len(label) > 0 for label in label_list])
   if is_label_present and legend:
     legkwargs_base = dict(fontsize='small', numpoints=1, scatterpoints=1, **legkwargs)
     legkwargs_base.update(legkwargs)
