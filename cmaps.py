@@ -6,7 +6,7 @@ Contains:
 show_all_colormaps : print all colormaps in a figure
 jetmod : colormap which contains no yellow
 jetext : extension to jet which starts at black and ends at white
-binary : red (False) and green (True) colormap without intermediate colors
+truefalse : red (False) and green (True) colormap without intermediate colors
 traffic_light : red, yellow, green colormap
 
 # private functions
@@ -23,7 +23,7 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 from numpy import ma
 
 __all__ = ['PercNorm', 'MaxContrastNorm', 'show_all_colormaps', 'jetmod', 'jetext',
-           'traffic_light', 'binary', 'bgr', 'jetgray']
+           'traffic_light', 'truefalse', 'bgr', 'jetgray']
 
 
 # generate output based on inputs.. colormaps are defined per marker_array
@@ -147,7 +147,7 @@ def show_all_colormaps():
   import matplotlib.pyplot as plt
 
   nof_steps = 256
-  cmaps_to_show = ['jetmod', 'jetgray', 'jetext', 'traffic_light', 'binary', 'bgr']
+  cmaps_to_show = ['jetmod', 'jetgray', 'jetext', 'traffic_light', 'truefalse', 'bgr']
   # cmaps_to_show = ['jetmod']
 
   mat = np.linspace(0, 1, nof_steps).reshape((1, -1))
@@ -513,7 +513,7 @@ def traffic_light(nof_steps=256, istep=None, invert=False, negative=False, inter
                           name='traffic_light')
 
 
-def binary(nof_steps=256, istep=None, invert=False, negative=False, interpolation='linear'):
+def truefalse(nof_steps=256, istep=None, invert=False, negative=False, interpolation='linear'):
   '''
   Colormap for displaying true or false images. consists of two colors and no interpolation done
 
@@ -553,7 +553,7 @@ def binary(nof_steps=256, istep=None, invert=False, negative=False, interpolatio
                            [1.0, 0, 1, 0]], dtype=np.float)
 
   return _gen_cmap_output(marker_array, nof_steps, istep, invert, negative, interpolation,
-                          name='binary')
+                          name='truefalse')
 
 
 def bgr(nof_steps=256, istep=None, invert=False, negative=False, interpolation='linear'):
