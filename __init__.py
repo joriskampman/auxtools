@@ -2141,22 +2141,20 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
                     + "since there is not a single step", category=UserWarning)
 
   # if not compressed or compressible (after a warning)
-  fmtlist = list2glue.copy()
-  fcnlist = list2glue.copy()
+  output_parts = []
   for type_, (fmt_, fcn_) in types_conv_dict.items():
-    for ielm, (fmt_elm, fcn_elm) in enumerate(zip(fmtlist, fcnlist)):
-      if isinstance(type_, fmt_elm):
-        fmtlist[ielm] = fmt_
+    for ielm, elm in enumerate(list2glue):
+      if isinstance(elm, type_):
+        output_part = fmt_.format(fcn_(elm))
+        output_parts.append(output_part)
 
-      if isinstance(type_, fcn_elm):
-        fcnlist[ielm] = fcn_
-
+  # fmtlist = list2glue.copy()
+  # fcnlist = list2glue.copy()
   # for type_ in types_conv_dict:
   #   fmtlist = [types_conv_dict[type_][0] if isinstance(fmt_, type_) else elm for fmt_ in fmtlist]
   #   fcnlist = [types_conv_dict[type_][1] if isinstance(fcn_, type_) else elm for fcn_ in fcnlist]
-
-  output_parts = [fmtstr.format(fcn(elm)) for (fcn, fmtstr, elm)
-                  in zip(fcnlist, fmtlist, list2glue)]
+  # output_parts = [fmtstr.format(fcn(elm)) for (fcn, fmtstr, elm)
+                  # in zip(fcnlist, fmtlist, list2glue)]
   if max_num_elms is None:
     max_num_elms = np.inf
   num_elms_to_pick = min(max_num_elms, len(output_parts))
