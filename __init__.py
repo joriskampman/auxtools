@@ -144,6 +144,39 @@ class NotInvertibleDictError(Exception):
 
 
 # FUNCTIONS
+def print_fraction(floatval, dotreplacement, ndec=1):
+  """
+  print a fraction without using a dot. For instance: 3.3V -> 3V3
+  """
+  first_int = int(floatval)
+  frac = floatval - first_int
+  second_int = int(0.5 + np.power(10, ndec)*frac)
+
+  output = "{:d}{:s}{:d}".format(first_int, dotreplacement, second_int)
+
+  return output
+
+
+def popup(message, title="Next up", add_title_to_message=True, silence=False, yesno=False):
+  """
+  display a pop-up
+  """
+  root = tk.Tk()
+  root.iconify()
+  if add_title_to_message:
+    message = "{:s}: {:s}".format(title, message)
+
+  answer = None
+  if not silence:
+    if yesno:
+      answer = tk.messagebox.askyesno(title, message)
+    else:
+      answer = tk.messagebox.showinfo(title=title, message=message, parent=root)
+
+  root.destroy()
+  return answer
+
+
 def isnumber(strs):
   """ check if strings represent a number. Floating point number or other representations count! """
   allowed_chars = ['.', 'e', '-', '+', 'E']
