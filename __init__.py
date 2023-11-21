@@ -2384,7 +2384,7 @@ def conv_fmt(pyfmt):
   return refmt
 
 
-def find_pattern(pattern, list_of_strings, nreq=None, nreq_mode='exact',
+def find_pattern(pattern, list_of_strings, nof_expected=None, nexp_mode='exact',
                  squeeze=True):
   """
   find a (python) formatted file name in a directory
@@ -2402,24 +2402,24 @@ def find_pattern(pattern, list_of_strings, nreq=None, nreq_mode='exact',
   # throw nof found in variable, necessary for possible post processing
   nof_found = len(valid_filenames)
 
-  if nreq is None:
+  if nof_expected is None:
     pass
 
-  elif isinstance(nreq, (int, np.integer)):
+  elif isinstance(nof_expected, (int, np.integer)):
     errstr = ("The expected number of found files is ({}), but only ({}) are found. "
-              .format(nreq, nof_found)
-              + "This is incompatible with *nreq_mode*=`{}`".format(nreq_mode))
-    if nof_found == nreq:
+              .format(nof_expected, nof_found)
+              + "This is incompatible with *nexp_mode*=`{}`".format(nexp_mode))
+    if nof_found == nof_expected:
       pass
-    elif nof_found > nreq:
-      if nreq_mode == 'min':
+    elif nof_found > nof_expected:
+      if nexp_mode == 'min':
         pass
-      elif nreq_mode in ('max', 'exact'):
+      elif nexp_mode in ('max', 'exact'):
         raise IncorrectNumberOfFilesFoundError(errstr)
-    elif nof_found < nreq:
-      if nreq_mode == 'max':
+    elif nof_found < nof_expected:
+      if nexp_mode == 'max':
         pass
-      elif nreq_mode in ('min', 'exact'):
+      elif nexp_mode in ('min', 'exact'):
         raise IncorrectNumberOfFilesFoundError(errstr)
     else:
       raise FileNotFoundError(errstr)
@@ -2433,7 +2433,7 @@ def find_pattern(pattern, list_of_strings, nreq=None, nreq_mode='exact',
   return valid_filenames
 
 
-def find_filename(filepattern, dirname, nreq=1, nreq_mode='exact',
+def find_filename(filepattern, dirname, nof_expected=1, nexp_mode='exact',
                   squeeze=True):
   """
   find a (python) formatted file name in a directory
@@ -2441,8 +2441,8 @@ def find_filename(filepattern, dirname, nreq=1, nreq_mode='exact',
   # get the contents of the folder
   contents = os.listdir(dirname)
 
-  found_strings = find_pattern(filepattern, contents, nreq=nreq,
-                               nreq_mode=nreq_mode, squeeze=squeeze)
+  found_strings = find_pattern(filepattern, contents, nof_expected=nof_expected,
+                               nexp_mode=nexp_mode, squeeze=squeeze)
 
   return found_strings
 
@@ -5595,7 +5595,7 @@ def short_string(str_, maxlength=None, what2keep='edges', placeholder="..."):
   return strout
 
 
-def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, nreq=None,
+def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, nof_expected=None,
                                 return_strings=False, strmatch='full', raise_except=True,
                                 if_multiple_take_shortest=False):
   """
@@ -5613,7 +5613,7 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
              A list of all variable names
   is_case_sensitive : bool, default=True
                       Whether the search must be case sensitive
-  nreq : [None | int], default=None
+  nof_expected : [None | int], default=None
          The number of elements which must be found. Raises an error if the number requested to be
          found is not exact.
   return_strings : bool, default=False
@@ -5694,29 +5694,29 @@ def find_elm_containing_substrs(substrs, list2search, is_case_sensitive=False, n
   if return_strings:
     output = list2search_fnd
 
-  if nreq is not None:
+  if nof_expected is not None:
     if len(output) == 0:
       raise NothingFoundError("The substr ({}) was not found in : {}".format(substrs, list2search))
 
-    elif len(output) == nreq:
-      if nreq == 1:
+    elif len(output) == nof_expected:
+      if nof_expected == 1:
         output = output[0]
     else:
       if raise_except:
         raise ValueError("There must be exactly {:d} ouputs. This case found {:d} outputs".
-                         format(nreq, len(list2search_fnd)))
+                         format(nof_expected, len(list2search_fnd)))
       else:
         if if_multiple_take_shortest:
           # find shortest
           isort = np.argsort([len(elm) for elm in list2search_fnd])
-          output = arrayify(output)[isort[:nreq]].tolist()
-          warnings.warn("{:d} elements found, while {:d} was requested.".format(ifnd.size, nreq)
+          output = arrayify(output)[isort[:nof_expected]].tolist()
+          warnings.warn("{:d} elements found, while {:d} was requested.".format(ifnd.size, nof_expected)
                         + "The shortest is/are taken! Beware",
                         category=ShortestElementTakenWarning)
         else:
           output = np.array([])
           warnings.warn("{:d} elements found, while {:d} was requested. Empty list returned! Beware"
-                        .format(ifnd.size, nreq), category=EmptyListReturnedWarning)
+                        .format(ifnd.size, nof_expected), category=EmptyListReturnedWarning)
 
   return output
 
@@ -5789,7 +5789,7 @@ def modify_strings(strings, globs=None, specs=None):
       if len(reptup) == 2:
         reptup = (*reptup, 'all')
 
-      ifnd = find_elm_containing_substrs(reptup[0], modstrings, nreq=1, strmatch=reptup[2],
+      ifnd = find_elm_containing_substrs(reptup[0], modstrings, nof_expected=1, strmatch=reptup[2],
                                          raise_except=False)
       if ifnd.size == 1:
         modstrings[ifnd] = reptup[1]
