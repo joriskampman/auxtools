@@ -1314,7 +1314,7 @@ def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=1, loopback=Fal
   """
   if msg is None:
     time.sleep(sleeptime)
-    return
+    return None
 
   if msg == 'default':
     wm = create_wait_message(nof_blinks=nof_blinks, loopback=loopback)
@@ -2176,7 +2176,7 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
   # if not compressed or compressible (after a warning)
   output_parts = []
   for type_, (fmt_, fcn_) in types_conv_dict.items():
-    for ielm, elm in enumerate(list2glue):
+    for elm in list2glue:
       if isinstance(elm, type_):
         output_part = fmt_.format(fcn_(elm))
         output_parts.append(output_part)
