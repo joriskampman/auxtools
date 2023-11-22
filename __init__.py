@@ -95,45 +95,6 @@ confidence_table = pd.Series(
 confidence_table.interpolate(method='cubic', inplace=True)
 
 
-# update the display of warnings
-def _formatted_warning(message, category, filename, lineno):
-  strbuf = "  "
-  strline = "-"*30
-  message = ("\"" + str(message).strip() + "\"").replace("\n", "\n" + strbuf + " ")
-  message = strbuf + message
-
-  # get length of top part
-  # pylint: disable=duplicate-string-formatting-argument
-  str_top = "{:s} {:s}, {:s}:{:d} {:s}".format(strline, category.__name__,
-                                               os.path.basename(filename), lineno, strline)
-  nchars_top = len(str_top)
-  fmt = ("\n{:s}\n{:s}\n{:s}\n\n"
-         .format(str_top, message, "-"*nchars_top))
-  return fmt
-
-
-def set_warnings_format():
-  """
-  set the format of the warnings to what I am accustomed to
-  """
-  print("overwriting warnings format .. ", end="")
-  warnings.formatwarning = _formatted_warning
-  print("done!")
-
-  return None
-
-
-def set_autolimit_mode():
-  """ set the autolimit mode to 'round_numbers' to force limits on the axis' min/max """
-
-  print("Setting the autolimit_mode to 'round_numbers' to force limits on the axis' min/max .. ",
-        end="")
-  plt.rcParams['axes.autolimit_mode'] = 'round_numbers'
-  print("done!")
-
-  return None
-
-
 # CLASSES
 class IncorrectNumberOfFilesFoundError(Exception):
   """ Incorrect number of files is found """
@@ -6563,8 +6524,48 @@ def strip_sep_from_string(text, sep='_'):
 
   return _text_
 
-
+# ====================== WARNINGS AND SETTINGS ============================
 # set the warnings format
+# update the display of warnings
+# pylint: disable-next=unused-argument
+def _formatted_warning(message, category, filename, lineno, line=None):
+  strbuf = "  "
+  strline = "-"*30
+  message = ("\"" + str(message).strip() + "\"").replace("\n", "\n" + strbuf + " ")
+  message = strbuf + message
+
+  # get length of top part
+  # pylint: disable=duplicate-string-formatting-argument
+  str_top = "{:s} {:s}, {:s}:{:d} {:s}".format(strline, category.__name__,
+                                               os.path.basename(filename), lineno, strline)
+  nchars_top = len(str_top)
+  fmt = ("\n{:s}\n{:s}\n{:s}\n\n"
+         .format(str_top, message, "-"*nchars_top))
+  return fmt
+
+
+def set_warnings_format():
+  """
+  set the format of the warnings to what I am accustomed to
+  """
+  print("overwriting warnings format .. ", end="")
+  warnings.formatwarning = _formatted_warning
+  print("done!")
+
+  return None
+
+
+def set_autolimit_mode():
+  """ set the autolimit mode to 'round_numbers' to force limits on the axis' min/max """
+
+  print("Setting the autolimit_mode to 'round_numbers' to force limits on the axis' min/max .. ",
+        end="")
+  plt.rcParams['axes.autolimit_mode'] = 'round_numbers'
+  print("done!")
+
+  return None
+
+# =============== CODE TO RUN ==================================
 set_warnings_format()
 
 set_autolimit_mode()
