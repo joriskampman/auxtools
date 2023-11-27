@@ -133,8 +133,12 @@ def popup(message, title="Next up", add_title_to_message=True, silence=False, ye
       answer = tk.messagebox.askyesno(title, message)
     else:
       answer = tk.messagebox.showinfo(title=title, message=message, parent=root)
+  else:
+    if yesno:
+      answer = True
 
   root.destroy()
+  
   return answer
 
 
