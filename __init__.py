@@ -1467,6 +1467,7 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
         if isinstance(prop, (int, np.integer)):
           item_for_list = [propname, 'integer', '{:d}'.format(prop)]
         elif isinstance(prop, str):
+          prop = prop.replace('\n', '\\n').replace('\r', '\\r').replace('\r', '\\t')
           item_for_list = [propname, 'string', "'{:s}'".format(prop.strip())]
         elif isinstance(prop, (float, np.floating)):
           item_for_list = [propname, 'float', '{:3g}'.format(prop)]
@@ -2060,6 +2061,9 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
   """
   def empty(arg):
     return arg
+
+  if len(list2glue) == 0:
+      return '[]'
 
   types_conv_dict = {str: (strfmt, empty),
                      int: (intfmt, empty),
