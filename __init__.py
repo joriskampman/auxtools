@@ -104,6 +104,10 @@ class NotInvertibleDictError(Exception):
   """ The dictionary to invert is not invertible (non-unique values most likely) """
 
 
+class DimensionError(Exception):
+  """ and exception for when some reshaping cannot work due to incorrect dimensions """
+
+
 # FUNCTIONS
 def print_fraction(floatval, dotreplacement, ndec=1):
   """
@@ -1618,7 +1622,8 @@ def format_matdata_as_dataframe(matdata, fields_to_keep=None):
   return datadf
 
 
-def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True):
+def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_if_int=True,
+                              is_iq=False, nof_vals_per_meas_point=1):
   """
   interpret a sequence string like '0, 10, 3' or '10.4' or 10:0.1:20'
 
@@ -1628,17 +1633,28 @@ def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_i
           Constains an interpretable string. E.g. piet: '1, 2, 3, 5'
   lsep: str, default=','
         The list separator. that is the separator which occurs often and separates the values
-  rsep : str, default=':'
+  rsep: str, default=':'
          The separator which splits the remainder from the list string
-  typefcn : <function>, default=float
+  typefcn: <function>, default=float
             The function for the values. Default I assume they are all floats
-  check_if_int : bool, default=True
+  check_if_int: bool, default=True
                  Check if the floats are actually ALL integers. In that case the output is converted
+  is_iq: bool, default=False
+          if the data is a SIMPLE stream of alternating i, q samples, this will make them complex.
+          The number of samples is thus halved using this set to True. can only be used in
+          combination with `nof_vals_per_meas_point=1`. Otherwise, the latter takes precedence.
+  nof_vals_per_meas_point: int, default=1
+                           the number of values associated with every measurement point. For IQ
+                           samples this is forced to 2. However, it can have any value.
+                           If this is set to anything other than 1 or 2 AND `is_iq` is set, an
+                           exception will be thrown.
 
   return:
   -------
-  seq_values : list
-               All the interpreted values
+  output : ndarray
+           All the interpreted values, may be reshaped to a 2D array in case
+           `nof_vals_per_meas_point` is not 1
+           In
   """
   # split the string
   pos_parts_list = seqstr.split(rsep)
@@ -1656,13 +1672,27 @@ def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_i
     raise ValueError("The values in the sequence '{:s}' cannot be determined"
                      .format(seqstr))
 
+  # check if they are integers
   if isinstance(typefcn, (np.floating, float)):
     if check_if_int:
       is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
       if is_int_seq:
         seq_values = np.int_(seq_values)
 
-  return seq_values
+  # make output variable
+  output = seq_values
+  
+  # check if measurement points have more than 1 value (i, q, i, q or freq, val, freq, val...)
+  if nof_vals_per_meas_point > 1:
+    # check dims
+    output = output.reshape(-1, nof_vals_per_meas_point).T
+
+  # else: check if they are IQ values
+  else:
+    if is_iq:
+      output = output[::2] + 1j*output[1::2]
+
+  return output
 
 
 def find_outliers(data, sf_iqr=1.5, axis=None):
