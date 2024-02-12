@@ -4397,6 +4397,57 @@ def logmod(x, multiplier=20):
   return output
 
 
+def is_in_bracket(value, bracket_, include_edges=[True, False]):
+  """ check if a value is in a bracket """
+  if isinstance(include_edges, bool):
+    include_edges = [include_edges]*2
+
+  if include_edges[0]:
+    tf_begin = value >= bracket_[0]
+  else:
+    tf_begin = value > bracket_[0]
+
+  if include_edges[1]:
+    tf_end = value <= bracket_[1]
+  else:
+    tf_end = value < bracket_[1]
+
+  tf_overall = bool(tf_begin*tf_end)
+
+  return tf_overall
+
+
+def find_bracket(value, bracketlist, include_edges=[True, False], allow_multi=False,
+                 return_tf=False):
+  """
+  Find the bracket from a list of brackets in which the value lies
+
+  Arguments:
+  ----------
+  value : int, float
+          The value for which the interval must be found
+  bracketlist : array-like of 2-array-likes
+                A list/tuple of 2-list/tuples. The 2-list/tuple contain the min and max of the
+                bracket
+  include_edges : 2-array of bool, default=[True, False]
+                  Whether or not to include the edges of the bracket
+  """
+  is_fnd_list = []
+  for bracket_ in bracketlist:
+    is_in_this = is_in_bracket(value, bracket_, include_edges=include_edges)
+    is_fnd_list.append(is_in_this)
+
+  ifnd_list = np.argwhere(is_fnd_list).ravel()
+  if ifnd_list.size > 1 and not allow_multi:
+    raise ValueError("There are multiple ({:d}) brackets found. This is not allowed"
+                     .format(ifnd_list.size))
+
+  if return_tf:
+    return is_fnd_list
+
+  return ifnd_list
+
+
 def bracket(x, axis=-1):
   '''
   *bracket* returns the minimum and maximum values of a ndarray of unlimited dimensions.of
