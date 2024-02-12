@@ -4184,6 +4184,63 @@ def dinput(question, default, include_default_in_question=True):
   return output
 
 
+def round_to_int(floats, inttype='nearest', intloc='nearest'):
+  """
+  round the integers
+
+  arguments:
+  ----------
+  floats : (array-like) of float(s)
+  inttype : [ 'nearest' | 'odd' | 'even'], default='nearest'
+            which type of integer wanted. Default is the nearest integer, but it can also be an odd
+            or even number
+  intloc : [ 'nearest' | 'above' | 'below'], default='nearest'
+           Whether the location is below or above the floating value.
+
+  Returns:
+  --------
+  ints : (array-like of) integers(s)
+  
+  """
+  isscal = np.isscalar(floats)
+
+  # make into array of floats
+  floats = arrayify(floats)
+
+  # neighbor
+  nearest = np.int_(0.5 + floats)
+
+  if inttype.startswith('nearest'):
+    step = 1
+    intvals = nearest
+  elif inttype.startswith(('odd', 'even')):
+    step = 2
+    intvals = np.int_(0.5 + floats/2)*2
+    if inttype.startswith('odd'):
+      delta_to_nearest_odd = np.sign(floats - intvals)
+      # closest odd neighbor
+      intvals = np.int_(0.5 + intvals + delta_to_nearest_odd)
+  else:
+    raise ValueError("The given value for 'inttype' ({}) is not valid".format(inttype))
+
+  if intloc.startswith('nearest'):
+    pass
+  elif intloc.startswith('above'):
+    tf_below = intvals < floats
+    intvals[tf_below] = intvals[tf_below] + step
+  elif intloc.startswith('below'):
+    tf_above = intvals > floats
+    intvals[tf_above] = intvals[tf_above] - step
+  else:
+    raise ValueError("the given value for 'intloc' ({}) is not valid".format(intloc))
+  # closest even neighbor
+
+  if isscal:
+    intvals = intvals.item(0)
+
+  return intvals
+
+
 def round_to_values(data, rnd2info):
   '''
   rounds a set of values to a set of allowed values
