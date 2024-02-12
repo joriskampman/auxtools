@@ -35,13 +35,15 @@ from scipy.fftpack import fftshift
 from scipy.signal import find_peaks, convolve2d
 
 # matplotlib sub-modules
-from matplotlib.colors import to_rgb
+from matplotlib.colors import to_rgb, to_rgba
+from matplotlib.cm import get_cmap
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Polygon
 import matplotlib.transforms as mtrans
 import matplotlib.dates as mdates
 
 # used sporadically
+from skimage.color import rgb2gray
 import pdb  # noqa
 import sys # noqa
 
@@ -142,7 +144,7 @@ def popup(message, title="Next up", add_title_to_message=True, silence=False, ye
       answer = True
 
   root.destroy()
-  
+
   return answer
 
 
@@ -241,7 +243,7 @@ def pick_from_interval(minval, maxval, nof_samples=1):
   return pick
 
 
-def angled(cvals, axis=-1, unwrap=False, icenter=None):
+def angled(cvals, axis=-1, unwrap=False, icenter=None, wrap_range=[-180, 180]):
   """
   return an angle in degrees
 
@@ -264,10 +266,17 @@ def angled(cvals, axis=-1, unwrap=False, icenter=None):
             The angle (whether unwrapped or not) in degrees. Can be a single float or an
             array-like of floats
   """
+  cvals = np.squeeze(cvals)
   if unwrap:
     angvals = np.rad2deg(np.unwrap(np.angle(cvals), axis=axis))
   else:
     angvals = np.angle(cvals, deg=True)
+    # apply wrap_range
+    if not np.isscalar(angvals):
+        tf_below = angvals < wrap_range[0]
+        tf_above = angvals > wrap_range[1]
+        angvals[tf_below] = angvals[tf_below] + 360.
+        angvals[tf_above] = angvals[tf_above] - 360.
 
   if icenter is not None:
     angvals_center = np.expand_dims(angvals.take(icenter, axis=axis), axis=axis)
@@ -278,13 +287,13 @@ def angled(cvals, axis=-1, unwrap=False, icenter=None):
   return angvals
 
 
-def timestamp(dt=None, sortable=False, fmt=None):
+def timestamp(dt=None, short=False, fmt=None):
   """ get the timestamp """
   if dt is None:
     dt = dtm.datetime.now()
   # first is for sorting, maximually short
   if fmt is None:
-    if sortable:
+    if short:
       tstr = dtm.datetime.strftime(dt, "%Y%m%d_%H%M%S")
 
     # slightly longer and more readable
@@ -296,7 +305,8 @@ def timestamp(dt=None, sortable=False, fmt=None):
   return tstr
 
 
-def colorbar(im, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", cbarlabel='', **kwargs):
+def add_colorbar(cdata=None, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", cbarlabel='',
+                 **kwargs):
   """
   wrapper around the colorbar
   """
@@ -314,6 +324,13 @@ def colorbar(im, fig=None, nof_ticks=None, axs=None, fmt="{:0.2f}", cbarlabel=''
     axs = np.array(fig.axes)
   elif isinstance(axs, plt.Axes):
     axs = np.array([axs])
+
+  if cdata is None:
+    im = axs[0].get_images()[0]
+  elif isinstance(cdata, plt.Axes):
+    im = cdata.get_images()[0]
+  else:
+    im = cdata
 
   cb = plt.colorbar(im, ax=axs.ravel().tolist(), ticks=cbticks, **kwargs)
 
@@ -735,14 +752,14 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
   return fig, ax0, axs_sub
 
 
-def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False, cleanup_pars={},
+def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, cleanup=False, cleanup_pars={},
                   buffer_pix=[4, 8], nrows=1, ncols=None, remove_axs_legends=True):
   """
   add a legend to a figure
   """
-  cleanup_dict={'lw': 1,
+  cleanup_dict={'lw': 2,
                 'marker': None,
-                'markersize': 2,
+                'markersize': 5,
                 'alpha': 1.}
   cleanup_dict.update(cleanup_pars)
 
@@ -774,44 +791,9 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False
     fig = plt.gcf()
 
   dpi = fig.get_dpi()
-  # get offset and make a transform
-  offset_sub = mtrans.ScaledTranslation(0., -dy_inch - buffer_pix[0]/dpi, fig.dpi_scale_trans)
-  trans_sub = fig.transFigure + offset_sub
+  hinch = fig.get_size_inches()[1]
 
-  # add the legend
-  nof_legends = len(legdata)
-  if ncols is None:
-    ncols = int(0.5 + (nof_legends+1)/nrows)
-  leg = fig.legend(legdata, labels, loc="upper center", bbox_to_anchor=[0.5, 1.],
-                   bbox_transform=trans_sub, borderaxespad=0.2, ncol=ncols,
-                   columnspacing=0.4, fontsize=8, edgecolor='k',
-                   prop={'size': 7, 'weight': 'bold'})
-
-  # modify the legdata and markers
-  if cleanup:
-    for legobj in leg.legendHandles:
-      if cleanup_pars['marker'] is not None:
-        legobj.set_marker(cleanup_pars['marker'])
-        print("something is not fully correct yet. Please check this when applicable")
-      # legobj.set_markersize(markersize)
-      # legobj.set_linewidth(lw)
-      # legobj.set_alpha(alpha)
-
-  hleg_dis = leg.get_window_extent().height
-
-  dpi = fig.get_dpi()
-  hleg_inch = hleg_dis/dpi
-
-  # adjust top
-  buffer_inch = buffer_pix[1]/dpi
-
-  # correct the dy_inch with the size of the
-  dy_inch += buffer_inch + hleg_inch
-
-  _, hinch = fig.get_size_inches()
-  ytop_rel = 1 - dy_inch/hinch
-
-  # check if there is a title present
+  # check if title is present
   axs = fig.get_axes()
   has_title = [len(ax.get_title()) > 0 for ax in fig.get_axes()]
   if np.any(has_title):
@@ -820,8 +802,45 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=0., cleanup=False
     fontsize_inch = fontsize_pts/72
     padsize_pix = plt.rcParams['axes.titlepad']
     padsize_inch = padsize_pix/dpi
-    offset_inch = fontsize_inch + padsize_inch + buffer_pix[0]/dpi
-    ytop_rel -= offset_inch/hinch
+    title_os_inch = fontsize_inch + padsize_inch + buffer_pix[0]/dpi
+  else:
+    title_os_inch = 0.
+
+  if dy_inch is None:
+    top_fig = fig.subplotpars.top
+    top_inch = top_fig*hinch
+    dy_inch = hinch - top_inch - title_os_inch
+
+  # get offset and make a transform
+  offset_sub = mtrans.ScaledTranslation(0., -1*dy_inch - buffer_pix[0]/dpi, fig.dpi_scale_trans)
+  trans_sub = fig.transFigure + offset_sub
+
+  # add the legend
+  nof_legends = len(legdata)
+  if ncols is None:
+    ncols = int(0.5 + nof_legends/nrows)
+  leg = fig.legend(legdata, labels, loc="upper center", bbox_to_anchor=[0.5, 1.],
+                   bbox_transform=trans_sub, borderaxespad=0.2, ncol=ncols,
+                   columnspacing=0.4, fontsize=8, edgecolor='k',
+                   prop={'size': 7, 'weight': 'bold'})
+
+  # modify the legdata and markers
+  if cleanup:
+    for legobj in leg.legendHandles:
+      if cleanup_dict['marker'] is not None:
+        legobj.set_marker(cleanup_dict['marker'])
+        print("something is not fully correct yet. Please check this when applicable")
+      legobj.set_markersize(cleanup_dict['markersize'])
+      legobj.set_linewidth(cleanup_dict['lw'])
+      legobj.set_alpha(cleanup_dict['alpha'])
+
+  hleg_dis = leg.get_window_extent().height
+  hleg_inch = hleg_dis/dpi
+
+  # adjust top
+  buffer_inch = buffer_pix[1]/dpi
+  dy_inch += buffer_inch + hleg_inch  # add the legend size and buffer
+  ytop_rel = 1 - (dy_inch + title_os_inch)/hinch  # take axes title size too
 
   fig.subplots_adjust(top=ytop_rel)
 
@@ -999,8 +1018,10 @@ def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', d
 
   # if; maximize
   wmax, hmax = get_max_a_size_for_display(units='inches', orientation=orientation)
+  width = 1.1*shortest_dim_inch
+  height = shortest_dim_inch
   if isinstance(size, str):
-    if size.endswith("maximize"):
+    if size == "maximize":
       # set figure manager
       # first: maximize
       mng.window.showMaximized()
@@ -1019,77 +1040,70 @@ def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', d
       width = sf_a*width
       height = sf_a*height
 
+    elif size.startswith('optimal'):
+      # find the number of axes
+      axs = fig.get_axes()
+      extents = [ax.get_position().extents for ax in axs]
+      x0s, y0s, x1s, y1s = np.array(extents).T
+      nof_rows = int(0.5 + (np.unique(y0s).size + np.unique(y1s).size)/2)
+      nof_cols = int(0.5 + (np.unique(x0s).size + np.unique(x1s).size)/2)
+      width *= nof_cols
+      height *= nof_rows
+      if len(size[7:]) > 0:
+        if size[8:].startswith('w'):
+          width *= np.sqrt(2)
+        elif size[8:].startswith('xw'):
+          width *= 2
+        elif size[8:].startswith('xxw'):
+          width *= 2*np.sqrt(2)
+        else:
+          print("unknown size '{:s}'. Simple 'optimal' taken".format(size))
+
+    # else: it will be shorthand from now
     else:
-      width = 1.1*shortest_dim_inch
-      height = shortest_dim_inch
-      if size == 'square':
-        pass
-      elif size == 'large':
-        width *= np.sqrt(2)
-        height *= np.sqrt(2)
-      elif size == 'xlarge':
-        width *= 2
-        height *= 2
-      elif size == 'xxlarge':
-        width *= 2*np.sqrt(2)
-        height *= 2*np.sqrt(2)
-      elif size == 'wide':
-        width *= np.sqrt(2)
-      elif size == 'xwide':
-        width *= 2
-      elif size == 'xxwide':
-        width *= 2*np.sqrt(2)
-      elif size == 'tall':
-        height *= np.sqrt(2)
-      elif size == 'xtall':
-        height *= 2
-      elif size == 'xxtall':
-        height *= 2*np.sqrt(2)
-      elif size.startswith('optimal'):
-        # find the number of axes
-        axs = fig.get_axes()
-        extents = [ax.get_position().extents for ax in axs]
-        x0s, y0s, x1s, y1s = np.array(extents).T
-        nof_rows = int(0.5 + (np.unique(y0s).size + np.unique(y1s).size)/2)
-        nof_cols = int(0.5 + (np.unique(x0s).size + np.unique(x1s).size)/2)
-        width *= nof_cols
-        height *= nof_rows
-        if len(size[7:]) > 0:
-          if size[8:].startswith('w'):
-            width *= np.sqrt(2)
-          elif size[8:].startswith('xw'):
-            width *= 2
-          elif size[8:].startswith('xxw'):
-            width *= 2*np.sqrt(2)
-          else:
-            print("unknown size '{:s}'. Simple 'optimal' taken".format(size))
+      # width = 1.1*shortest_dim_inch
+      # height = shortest_dim_inch
+      # the next is shorthand:
+      # s: 'smaller'
+      # l: 'larger'
+      # w: 'wider'
+      # t: 'taller'
+      # e.g.: 'wwtt' is the same as 'll'. Or 'wl'
+      nof_s = np.sum([elm == 's' for elm in list(size)])
+      nof_l = np.sum([elm == 'l' for elm in list(size)])
+      nof_w = np.sum([elm == 'w' for elm in list(size)])
+      nof_t = np.sum([elm == 't' for elm in list(size)])
+      wfactor = np.power(np.sqrt(2), nof_w + nof_l - nof_s)
+      hfactor = np.power(np.sqrt(2), nof_t + nof_l - nof_s)
+      width *= wfactor
+      height *= hfactor
 
-      else:
-        raise ValueError("The size given ({:s}) is not valid".format(size))
-
-      # compensate for the dy_inch offset
-      height += dy_inch
+    # # compensate for the dy_inch offset
+    # height += dy_inch
 
   # else: witdth and height are given
   else:
     if np.isscalar(size):
       size = [size]
+    else:
+      width = 1.1*shortest_dim_inch
+      height = shortest_dim_inch
 
     width, height = size
 
   # change the size
-    wh_ratio = width/height
-    if width > wmax:
-      warnings.warn("The width ({:f}) exceeds the screen width ({:f})! Clipped with same aspect!"
-                    .format(width, wmax))
-      width = wmax
-      height = width/wh_ratio
+  wh_ratio = width/height
+  if width > wmax:
+    warnings.warn("The width ({:f}) exceeds the screen width ({:f})! Clipped with same aspect!"
+                  .format(width, wmax))
+    width = wmax
+    height = width/wh_ratio
 
-    if height > hmax:
-      height = hmax
-      width = height*wh_ratio
-      warnings.warn("The height ({:f}) exceeds the screen height ({:f})! Clipped with same aspect!"
-                    .format(height, wmax))
+  if height > hmax:
+    height = hmax
+    width = height*wh_ratio
+    warnings.warn("The height ({:f}) exceeds the screen height ({:f})! Clipped with same aspect!"
+                  .format(height, wmax))
 
   fig.set_size_inches(width, height, forward=True)
   plt.draw()
@@ -1179,25 +1193,51 @@ def get_common_part(list_of_strings, return_uncommon=False, from_end=False):
 
 
 def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=False,
-            close=False, **savefig_kwargs):
+            close=False, treat_minus_as_hyphen=False, signs_in_words=False,
+            set_lowercase=True, throw_exception=False, **savefig_kwargs):
   """
   save the figure
   """
+  # ------------- replaceables ----------------------------
+  replacedict = {" ": "_",
+                 ",": "",
+                 ")": "",
+                 "(": "__",
+                 "[": "__",
+                 "]": "",
+                 "{": "__",
+                 "}": "",
+                 "|": "",
+                 "~": "",
+                 "%": ""}
+  if treat_minus_as_hyphen:
+    replacedict["-"] = "_"
+  if signs_in_words:
+    replacedict["+"] = "plus"
+    replacedict["-"] = "minus"
+
+  # get the figures
   if fig is None:
     fig = plt.gcf()
 
   kwargs = dict(format=ext[1:])
   kwargs.update(savefig_kwargs)
 
+  # ----------- get the name and tidy up --------------
   if name is None:
     name = fig.get_label()
     # remove [x] part
     istop = name.find("[")
     if istop > 0:
       name = name[:istop]
-    # replace spaces with underscores
-    name = name.replace(" ", "_")
+  # tidy up the name
+  for key, value in replacedict.items():
+    name = name.replace(key, value)
 
+  if set_lowercase:
+    name = name.lower()
+
+  # -------------- SAVE DIRECTORY ----------------------
   if dirname is None:
     dirname = os.curdir
 
@@ -1214,7 +1254,11 @@ def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=Fals
 
   if not force:
     if os.path.exists(ffilename):
-      raise FileExistsError("The file '{:s}' already exists".format(ffilename))
+      if throw_exception:
+        raise FileExistsError("The file '{:s}' already exists".format(ffilename))
+      else:
+        print("File '{:s}' already exists. Not overwritten!".format(ffilename))
+        return None
 
   print("Saving figure '{:s}' .. ".format(ffilename), end='')
 
@@ -1277,7 +1321,8 @@ def timer(seconds, minutes=0, hours=0, days=0, only_seconds=False, ndec=1,
   return None
 
 
-def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=1, loopback=False):
+def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=1, loopback=False,
+          wakemsg='awake!'):
   """
   a sleep function that shows a wait message
   """
@@ -1295,8 +1340,7 @@ def sleep(sleeptime, msg='default', polling_time=0.1, nof_blinks=1, loopback=Fal
     print("\r" + next(wm), end='\r', flush=True)
     time.sleep(polling_time)
 
-  # newline after message
-  print("")
+  print("\r{:{:d}s}".format(wakemsg, len(msg)))
 
   return None
 
@@ -1315,8 +1359,9 @@ def create_wait_message(msg="sssstt! I'm asleep!", nof_blinks=1,
   parts.append(msg)
 
   # blinking
-  to_append = [" "*nof_chars]*nof_blinks
-  parts.append(*to_append)
+  if nof_blinks > 0:
+    to_append = [" "*nof_chars]*nof_blinks
+    parts.append(*to_append)
 
   # loopback
   if loopback:
@@ -1681,7 +1726,7 @@ def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_i
 
   # make output variable
   output = seq_values
-  
+
   # check if measurement points have more than 1 value (i, q, i, q or freq, val, freq, val...)
   if nof_vals_per_meas_point > 1:
     # check dims
@@ -1779,18 +1824,21 @@ def dec2hex(decvals, nof_bytes=None):
   return hexvals
 
 
-def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None, **kwargs):
+def plot_grid(data, *args, ax=None, aspect='equal', center=False, tf_valid=None, **kwargs):
   """
   plot a grid from a 2D set of complex data
   """
+  kwargs_ = dict(color='k', lw=2, ls='-', marker='')
+  kwargs_.update(kwargs)
+
   if np.iscomplex(data.item(0)):
     data_cplx = data
   else:
     data_cplx = data + 1j*args[0]
     args = args[1:]
 
-  if len(args) == 0:
-    args = ('b-',)
+  # if len(args) == 0:
+  #   args = ('',)
 
   xmeas = np.real(data_cplx)
   ymeas = np.imag(data_cplx)
@@ -1805,18 +1853,18 @@ def plot_grid(data, *args, ax='new', aspect='equal', center=True, tf_valid=None,
 
   # plot a grid of lines
   if ax is None:
-    ax = plt.gca()
-  elif ax == 'new':
     _, ax = plt.subplots(1, 1)
+  elif isinstance(ax, str) and ax.startswith('h'):
+    ax = plt.gca()
 
   for irow in range(nr):
     if tf_valid[irow, :].sum() > 0:
       # plot horizontal line
-      qplot(xmeas[irow, tf_valid[irow, :]], ymeas[irow, tf_valid[irow, :]], *args, ax=ax, **kwargs)
-  for icol in range(63):
+      qplot(ax, xmeas[irow, tf_valid[irow, :]], ymeas[irow, tf_valid[irow, :]], *args, **kwargs_)
+  for icol in range(nc):
     if tf_valid[:, icol].sum() > 0:
       # plot vertical line
-      qplot(xmeas[tf_valid[:, icol], icol], ymeas[tf_valid[:, icol], icol], *args, ax=ax, **kwargs)
+      qplot(ax, xmeas[tf_valid[:, icol], icol], ymeas[tf_valid[:, icol], icol], *args, **kwargs_)
 
   # set the aspect ratio
   ax.set_aspect(aspect)
@@ -2125,6 +2173,8 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
       string = intfmt.format(value)
     elif isinstance(value, str):
       string = strfmt.format(value)
+    elif isinstance(value, dict):
+      string = "<{:d}-key dict>".format(len(value))
     else:
       raise TypeError("The value type given ({}) is not recognized".format(type(value)))
 
@@ -4168,12 +4218,12 @@ def round_to_values(data, rnd2info):
       states = np.linspace(data.min(), data.max(), nof_states)
 
   # vectorize data
-  nr, nc = data.shape
+  shp = data.shape
 
   # minus via singleton expansion
   imin = np.abs(data.reshape(-1, 1) - states.reshape(1, -1)).argmin(axis=1)
 
-  output = states[imin].reshape(nr, nc)
+  output = states[imin].reshape(*shp)
 
   return output
 
@@ -4563,9 +4613,9 @@ def get_max_a_size_for_display(orientation='landscape', nof_monitors='auto',
   return width, height
 
 
-def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False, conv_mode='same',
-                downsample=True, nof_pts_per_filt='auto', return_indices=False,
-                return_filt=False):
+def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
+                downsample=False, nof_pts_per_filt='auto', return_indices=False,
+                return_filt=False, edge='mirror'):
   """
   smooth the data
 
@@ -4590,6 +4640,12 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False, conv_mode='sa
   nof_pts_per_filt : ['auto' | int], default='auto'
                      If 'downsample' is true, these are the number of points per filter. 'auto'
                      will return a data equal to the standard deviation
+  edge : [ 'mirror' | 'sample' ], None or float, default='mirror'
+         How to process the edges. Options are:
+         - None     : nothing is done. The edges are appended with zeros
+         - mirror   : The samples are mirrored and copied
+         - sample   : the first and last samples are taken
+         - float    : a value is taken for the edge value
 
   Outputs:
   --------
@@ -4634,7 +4690,27 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False, conv_mode='sa
     filt -= filt.min()
     filt /= filt.sum()
 
-    data_f = np.convolve(data, filt, mode=conv_mode)
+    nof_ext_samples = int(0.5 + (nof_filt_samples - 1)/2)
+    if edge is None:
+      data_ext = data
+    elif isinstance(edge, (float, np.floating, complex, np.complexfloating)):
+      data_ext = np.concatenate((data[0]*nof_ext_samples, data, data[-1]*nof_ext_samples))
+    elif isinstance(edge, str):
+      if edge == 'mirror':
+        data_ext = np.concatenate((data[nof_ext_samples:0:-1], data, data[-nof_ext_samples:]))
+      elif edge == 'sample':
+        data_ext = np.concatenate(([data[0]]*nof_ext_samples,
+                                   data,
+                                   [data[-1]]*nof_ext_samples))
+      else:
+        raise ValueError("The given value for 'edge' ({:s}) is not valid!".format(edge))
+
+    # determine convolution mode and filter
+    if data_ext.size > data.size:
+      conv_mode = 'valid'
+    else:
+      conv_mode = 'same'
+    data_f = np.convolve(data_ext, filt, mode=conv_mode)
     ipts = np.r_[:data_f.size]
 
   if makeplot:
@@ -4819,7 +4895,7 @@ def find_blob_edges(blob, threshold=1., return_mask=False):
 def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
           mark_endpoints=False, endpoints_as_text=False, endpoint_color='k',
           split_complex_vals=True, colors='jetmodb', legend=True, legend_loc='upper right',
-          legkwargs=dict(), figtitles=None, txt_rot='auto', margins=0.01, grid=False,
+          legkwargs=dict(), figtitles=None, txt_rot='auto', margins=0.01, grid=None,
           datetime_fmt='auto', return_lobjs=False, **plotkwargs):
   """
   a quicklook plot
@@ -4946,11 +5022,11 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   # make the xs and ys (list of) vectors
   if len(datalist) == 1:
     xdata = None
-    ydata = datalist[0]
+    ydata = np.squeeze(datalist[0])
   # there are 2 separate x and y sets given
   elif len(datalist) == 2:
-    xdata = args[0]
-    ydata = args[1]
+    xdata = np.squeeze(args[0])
+    ydata = np.squeeze(args[1])
   else:
     raise ValueError("There are more than 2 input arguments given ({})".format(len(args)))
 
@@ -5118,14 +5194,22 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   if not np.isclose(txt_rot, 0.):
     ax.tick_params(axis='x', labelrotation=txt_rot, labelsize='small')
 
-  if margins is not None:
-    ax.margins(margins)
+  if margins is None:
+    margins = [None]*2
+  elif np.isscalar(margins):
+    margins = [margins]*2
+  else:
+    pass
+
+  ax.margins(x=margins[0], y=margins[1])
   # en-, or disable grid
-  ax.grid(grid)
+  if grid is not None:
+    ax.grid(grid)
+    plt.draw()
   plt.show(block=False)
   plt.pause(1e-4)
   plt.draw()
-  plt.pause(1e-4)
+  plt.pause(1e-2)
 
   if return_lobjs:
     if len(lobjs) == 1:
