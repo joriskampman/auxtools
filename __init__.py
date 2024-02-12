@@ -1438,7 +1438,7 @@ def inspect_dict(dict_, searchfor=None, maxlen=None):
         item_for_list = [key, 'string', value.decode('utf-8')]
     elif isinstance(value, dict):
       item_for_list = [key, '{:d}-dict'.format(len(value.keys())),
-                       '{:s}'.format(print_list(list(value.keys())))]
+                       '{}'.format(value)]
     elif isinstance(value, np.ndarray):
       item_for_list = [key, '{}-array ({})'.format(value.shape, value.dtype),
                        print_list(value.ravel(), maxlen=maxlen, max_num_elms=3)]
