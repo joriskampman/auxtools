@@ -5988,28 +5988,112 @@ def modify_strings(strings, globs=None, specs=None):
   return modstrings
 
 
-def improvedshow(matdata, clabels=None, rlabels=None, show_values=True, fmt="{:0.1g}",
-                 invalid=None, ax=None, title=None, fignum=None, **kwargs):
+def plot_matrix(matdata, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
+                clabels=None, rlabels=None, show_values=True,
+                fmt="{:0.2f}", clim='wide', ccenter=None, grid=True, fontsize=6,
+                fontweight='bold', nan_color='w', nan_alpha=1.,
+                imkwargs=dict(), txtkwargs=dict(), gridkwargs=dict()):
   """
   create a matrix plot via matshow with some extras like show the values
   """
+  # parameter dictionaries
+  imkwargs_ = dict(interpolation='nearest', cmap=cmap, alpha=alphas, aspect=aspect)
+  imkwargs_.update(imkwargs)
 
-  if np.isscalar(invalid):
-    invalid = [invalid - np.spacing(invalid), invalid + np.spacing(invalid)]
+  txtkwargs_ = dict(fontsize=fontsize,
+                    ha='center',
+                    va='center',
+                    clip_on=True,
+                    fontweight=fontweight,
+                    bbox={'boxstyle':'square', 'pad':0.0,
+                          'facecolor': 'none', 'lw': 0.,
+                          'clip_on': True})
+  txtkwargs_.update(txtkwargs)
+
+  gridkwargs_ = dict(color='k',
+                     lw=2,
+                     ls='-',
+                     alpha=0.8)
+  gridkwargs_.update(gridkwargs)
+
+  # process the 'ivalid' argument
+  if ccenter is None:
+    ccenter = np.mean(bracket(matdata.ravel()))
+  else:
+    if isinstance(ccenter, str):
+      if ccenter.startswith('mean'):
+        ccenter = np.mean(matdata)
+      elif ccenter.startswith('median'):
+        ccenter = np.median(matdata)
+      else:
+        raise ValueError("the value given for 'ccenter' ('{:s}') is not valid!\n"
+                         .format(ccenter)
+                         + "Try 'mean' or 'median'")
+    if clim is None:
+      raise ValueError("If a value for 'ccenter' is given, then 'clim' may not be None")
+
+  # calculate possible border options
+  maxval = np.nanmax(matdata)
+  minval = np.nanmin(matdata)
+  maxdev = maxval - ccenter
+  mindev = minval - ccenter
+  if isinstance(clim, str):
+    if clim.startswith('tight'):
+      shortest_max = np.nanmin((np.abs(maxdev), np.abs(mindev)))
+      clim = [ccenter - shortest_max, ccenter + shortest_max]
+    elif clim.startswith('wide'):
+      largest_max = np.nanmax((np.abs(maxdev), np.abs(mindev)))
+      clim = [ccenter - largest_max, ccenter + largest_max]
+    elif clim.startswith('average'):
+      avg_max = np.nanmean((np.abs(maxdev), np.abs(mindev)))
+      clim = [ccenter - avg_max, ccenter + avg_max]
+  else:
+    clim = listify(clim)
+
+  if isinstance(nan_color, str):
+    nan_color = to_rgb(nan_color)
+
+  # get the axis and shapes
   nr, nc = matdata.shape
   if ax is None:
-    fig, ax = plt.subplots(1, 1, num=figname(fignum))
-  else:
-    fig = ax.figure
+    _, ax = plt.subplots(1, 1, num=figname('plot_matrix'))
 
-  ax.imshow(matdata, interpolation='nearest', **kwargs)
+  # convert the data to rgba values
+  f_cvals = get_cmap(cmap)
+  # convert to scaled images (between 0 and 1)
+  climdata = matdata.copy()
+  tf_isinf = np.isinf(climdata)
+  climdata[tf_isinf] = np.nan
 
+  climdata -= np.nanmin(climdata)
+  climdata /= np.nanmax(climdata)
+
+  climdata = (matdata - clim[0])/(clim[1] - clim[0])
+  matrgbas = f_cvals(climdata)
+
+  tf_isnan = np.isnan(climdata)
+  matrgbas[tf_isnan, :3] = nan_color
+  matrgbas[tf_isnan, 3] = nan_alpha
+  ax.imshow(matrgbas, **imkwargs_)
+
+  # set the grid lines
+  ax.grid(False)
+  if grid:
+    nof_cols, nof_rows = matdata.shape
+    rvec = np.r_[:(nof_rows+1)] - 0.5
+    cvec = np.r_[:(nof_cols+1)] - 0.5
+    rarr, carr = np.meshgrid(rvec, cvec)
+    plot_grid(rarr, carr, ax=ax, **gridkwargs_)
+
+  # ----------- TICKS AND LABELS ------------------
+  # x axis
   ax.set_xticks(np.r_[:nc])
   if clabels is None:
     ax.set_xticklabels(ax.get_xticks(), fontsize=7)
   else:
     ax.set_xticklabels(clabels, fontsize=7, rotation=45, va='top', ha='right')
 
+  # y axis
   ax.set_yticks(np.r_[:nr])
   if rlabels is None:
     ax.set_yticklabels(ax.get_yticks(), fontsize=7)
@@ -6021,35 +6105,27 @@ def improvedshow(matdata, clabels=None, rlabels=None, show_values=True, fmt="{:0
   ax.set_xticks(np.r_[-0.5:nc+0.5:1], minor=True)
   ax.set_yticks(np.r_[-0.5:nr+0.5:1], minor=True)
 
-  ax.grid(which='minor', linewidth=1)
-
-  if 'aspect' not in kwargs:
-    kwargs['aspect'] = 'auto'
-  # show the values in the matrix
+  # ----------- SHOW VALUES ----------------------------
   if show_values:
+    # get the colormap
+    f_cvals = get_cmap(cmap)
+
+    scaledgrays = rgb2gray(matrgbas[..., :3])
     for irow in range(nr):
       for icol in range(nc):
-        cellval = matdata[irow, icol]
-        # check if is valid
-        if (invalid is None) or not (invalid[0] < cellval < invalid[1]):
-          # check color
-          # if cellval.sum() < 0.5:
-          #   color = [0.75, 0.75, 0.75]
-          # else:
-          #   color = [0., 0., 0]
-          ax.text(icol, irow, fmt.format(matdata[irow, icol]), fontsize=6, ha='center',
-                  color='k', va='center', clip_on=True, bbox={'boxstyle':'square', 'pad':0.0,
-                                                              'facecolor': 'none', 'lw': 0.,
-                                                              'clip_on': True})
 
-  if title is not None:
-    ax.set_title(title, fontsize=11, fontweight='bold')
+        cellval = scaledgrays[irow, icol]
+        # check color
+        if cellval < 0.5:
+          color = [0.95, 0.95, 0.95]
+        else:
+          color = [0., 0., 0]
+        ax.text(icol, irow, fmt.format(matdata[irow, icol]), color=color, **txtkwargs_)
 
   plt.show(block=False)
-  fig.tight_layout()
   plt.draw()
 
-  return fig, ax
+  return ax
 
 
 def get_file(filepart=None, dirname=None, ext=None):
