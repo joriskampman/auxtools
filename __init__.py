@@ -469,7 +469,7 @@ def format_as_si(value, nsig=3, ndec=None, sep=" ", fmt='auto', max_use_level=0,
 
   if check_if_int:
     if isinstance(val, (np.floating, float)) and val.is_integer():
-      val = np.int(val)
+      val = int(val)
       fmt = "{:d}"
 
   if fmt.startswith('auto'):
@@ -678,9 +678,9 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
   resize_figure(orientation=orientation)
 
   axs_sub = []
-  nof_subs_per_stack = np.int(0.5 + nof_subs/nof_sub_stacks)
+  nof_subs_per_stack = int(0.5 + nof_subs/nof_sub_stacks)
   if subs_loc in ('top', 'bottom'):
-    gs = GridSpec(ratio+nof_sub_stacks, np.int(0.5 + nof_subs/nof_sub_stacks))
+    gs = GridSpec(ratio+nof_sub_stacks, int(0.5 + nof_subs/nof_sub_stacks))
     # add the subplots to the figure
     if subs_loc == 'bottom':
       ax0 = fig.add_subplot(gs[:-nof_sub_stacks, :])
@@ -694,7 +694,7 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
         sharey = None
       for isub in range(nof_subs):
         i_in_stack = isub%nof_subs_per_stack
-        istack = np.int(isub/nof_subs_per_stack)
+        istack = int(isub/nof_subs_per_stack)
         irow_this_stack = -(nof_sub_stacks - istack)
         ax = fig.add_subplot(gs[irow_this_stack, i_in_stack], sharex=sharex, sharey=sharey)
         axs_sub.append(ax)
@@ -710,12 +710,12 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
         sharey = None
       for isub in range(nof_subs):
         i_in_stack = isub%nof_subs_per_stack
-        istack = np.int(isub/nof_subs_per_stack)
+        istack = int(isub/nof_subs_per_stack)
         irow_this_stack = istack
         ax = fig.add_subplot(gs[irow_this_stack, i_in_stack], sharex=sharex, sharey=sharey)
         axs_sub.append(ax)
   elif subs_loc in ('left', 'right'):
-    gs = GridSpec(np.int(0.5 + nof_subs/nof_sub_stacks), ratio+nof_sub_stacks)
+    gs = GridSpec(int(0.5 + nof_subs/nof_sub_stacks), ratio+nof_sub_stacks)
     if subs_loc == 'left':
       ax0 = fig.add_subplot(gs[:, nof_sub_stacks:])
       if sharex:
@@ -728,7 +728,7 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
         sharey = None
       for isub in range(nof_subs):
         i_in_stack = isub%nof_subs_per_stack
-        istack = np.int(isub/nof_subs_per_stack)
+        istack = int(isub/nof_subs_per_stack)
         icol_this_stack = istack
         ax = fig.add_subplot(gs[i_in_stack, icol_this_stack], sharex=sharex, sharey=sharey)
         axs_sub.append(ax)
@@ -744,7 +744,7 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
         sharey = None
       for isub in range(nof_subs):
         i_in_stack = isub%nof_subs_per_stack
-        istack = np.int(isub/nof_subs_per_stack)
+        istack = int(isub/nof_subs_per_stack)
         icol_this_stack = -(nof_sub_stacks - istack)
         ax = fig.add_subplot(gs[i_in_stack, icol_this_stack], sharex=sharex, sharey=sharey)
         axs_sub.append(ax)
@@ -1033,7 +1033,7 @@ def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', d
         width = wmax
         height = hmax
       else:
-        width, height = paper_A_dimensions(np.int(size[1:]), units='inches',
+        width, height = paper_A_dimensions(int(size[1:]), units='inches',
                                            orientation=orientation)
 
       # use width and height to set the figure size
@@ -2145,16 +2145,15 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
 
   types_conv_dict = {str: (strfmt, empty),
                      int: (intfmt, empty),
-                     np.int64: (intfmt, empty),
-                     np.int16: (intfmt, empty),
+                     np.integer: (intfmt, empty),
                      float: (floatfmt, empty),
-                     np.complex_: (cplxfmt, empty),
+                     np.floating: (floatfmt, empty),
                      complex: (cplxfmt, empty),
+                     np.complexfloating: (cplxfmt, empty),
                      np.bool_: ('{}', empty),
                      bool: ('{}', empty),
                      dict: ("<{:d}-key dict>", len),
                      list: ("<{:d}-list>", len),
-                     np.int32: (intfmt, empty),
                      type(None): ("None", empty),
                      np.ndarray: ("<{:d}-array>", len),
                      np.void: ("np.void", empty),
@@ -2262,8 +2261,9 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
   """
   types_conv_dict = {str: strfmt,
                      int: intfmt,
-                     np.int64: intfmt,
+                     np.integer: intfmt,
                      float: floatfmt,
+                     np.floating: floatfmt,
                      np.ndarray: '{}'}
 
   # check the three types
@@ -3218,7 +3218,7 @@ def find_dominant_frequencies(signal, fs, f1p=None, scaling='default', max_nof_p
   # calculate the minimum distance between samples
   dP_per_sample = fs_/(2.*nof_samples)
   distance_in_P = 0.4
-  distance_in_samples = 1 + np.int(0.5 + distance_in_P/dP_per_sample)
+  distance_in_samples = 1 + int(0.5 + distance_in_P/dP_per_sample)
 
   # find the peaks taking the distance of P/2 into account
   height = Ydb_debias.max() - np.abs(min_rel_height_db)
@@ -3532,8 +3532,7 @@ def _print_struct_array_flat_compact(arr, substr='<var>', is_singleton=True, out
   # it is a leave!
   if is_leave:
     # NUMERICAL
-    if isinstance(arr, (float, complex, np.float_, np.float16, np.float32, np.float64, np.float128,
-                        np.complex64, np.complex128, np.complex256)):
+    if isinstance(arr, (float, complex, np.floating, np.complexfloating)):
       type_ = type(arr).__name__
       if is_singleton:
         endstr = ': {:.2} ({})'.format(arr, type_)
@@ -3560,8 +3559,7 @@ def _print_struct_array_flat_compact(arr, substr='<var>', is_singleton=True, out
     elif isinstance(arr, np.ndarray):
       type_ = type(arr.ravel()).__name__
       if is_singleton:
-        if type(arr[0]) in [float, complex, np.float_, np.float16, np.float32, np.float64,
-                            np.float128, np.complex64, np.complex128, np.complex256]:
+        if isinstance(arr[0], (float, complex, np.floating, np.complexfloating)):
           endstr = ': {} ({}{}) '.format(subset_str(arr, '{:0.2}'), type_, arr.shape)
         else:
           endstr = ': {} ({}{}) '.format(subset_str(arr), type_, arr.shape)
@@ -3919,10 +3917,10 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   for irow in np.arange(nof_rows):
 
     # create tkvars of the correct type
-    if types[irow] in (np.float_, float):
+    if types[irow] in (np.floating, float):
       tkvar.append(tk.DoubleVar(master, value=defaults[irow]))
 
-    elif types[irow] in (np.int_, int):
+    elif types[irow] in (np.integer, int):
       tkvar.append(tk.IntVar(master, value=defaults[irow]))
 
     elif types[irow] == str:
@@ -4819,8 +4817,8 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
     else:
       conv_mode = 'same'
     data_f = np.convolve(data_ext, filt, mode=conv_mode)
-    ipts = np.r_[:data_f.size]
 
+  ipts = np.r_[:data_f.size]
   if makeplot:
     ax = qplot(data, 'k.-', label="Unfiltered")
     qplot(ax, ipts, data_f, 'r.-', label="Filtered - same sample-rate")
@@ -5658,7 +5656,7 @@ def str2int(strnum):
     warnings.warn("The number string *{:s}* is no integer, so it will be rounded first".
                   format(strnum), UserWarning)
 
-  return np.int(0.5 + floatval)
+  return int(0.5 + floatval)
 
 
 def str2timedelta(numstr):
@@ -5758,9 +5756,9 @@ def short_string(str_, maxlength=None, what2keep='edges', placeholder="..."):
     what2keep = strlen//2 - pllen
 
   if isinstance(what2keep, (np.integer, int, float, np.floating)):
-    what2keep = np.int(what2keep + 0.5)
+    what2keep = int(what2keep + 0.5)
     nof_chars = maxlength - 2*pllen
-    istart_keep = np.int(what2keep + 0.5)
+    istart_keep = int(what2keep + 0.5)
     iend_keep = istart_keep + nof_chars
     # if start point is less than length of placeholder there is no point in using placeholder
     if istart_keep < pllen:
@@ -6165,7 +6163,7 @@ def get_file(filepart=None, dirname=None, ext=None):
     print("Multiple files found. Select the wanted one")
     for ifile, file in enumerate(files_found):
       print("[{:d}] {:s}".format(ifile, file))
-    index_chosen = np.int(input("Select the file to load: "))
+    index_chosen = int(input("Select the file to load: "))
     filename = files_found[index_chosen]
   else:
     filetypes = [("All files", "*.*")]
@@ -6255,7 +6253,7 @@ def eval_string_of_indices(string):
   for part in parts:
     # if syntax a:b[:c]
     if len(part.split(':')) > 1:
-      split_parts = [np.int(index) for index in part.split(':')]
+      split_parts = [int(index) for index in part.split(':')]
 
       # if a:b
       if len(split_parts) == 2:
@@ -6270,7 +6268,7 @@ def eval_string_of_indices(string):
 
     # else: single index
     else:  # no smart indexing
-      isels.append(np.int(part))
+      isels.append(int(part))
 
   if len(isels) == 1:
     isels = isels[0]

@@ -224,11 +224,11 @@ def _gen_cmap_output(marker_array, nof_steps, istep, invert=False, negative=Fals
   # check if interpolation is nearest, then create double markers to prevent interpolation
   if interpolation == 'nearest':
     nof_markers = marker_array.shape[0]
-    marker_array_new = np.zeros(((nof_markers - 1)*3 + 1, 4), dtype=np.float)
+    marker_array_new = np.zeros(((nof_markers - 1)*3 + 1, 4), dtype=float)
     marker_array_new[[0, -1], :] = marker_array[[0, -1], :]
 
     for imarker in range(1, nof_markers):
-      inew = imarker*3 + np.array([-2, -1, 0], dtype=np.int)
+      inew = imarker*3 + np.array([-2, -1, 0], dtype=int)
       rel_pos = (marker_array[imarker, 0] + marker_array[imarker-1, 0])/2
       marker_array_new[inew[0], 0] = rel_pos - 0.0001
       marker_array_new[inew[1], 0] = rel_pos + 0.0001
@@ -273,7 +273,7 @@ def _gen_cmap_output(marker_array, nof_steps, istep, invert=False, negative=Fals
 
   # istep = 'vector' -> create Nx3 matrix with RGB 3-tuples
   elif istep == 'vector':
-    return_vector = np.zeros((nof_steps, 3), dtype=np.float)
+    return_vector = np.zeros((nof_steps, 3), dtype=float)
     for istep in range(nof_steps):
       posi = np.linspace(0, 1, nof_steps)[istep]
       redi = np.interp(posi, marker_array[:, 0], marker_array[:, 1])
@@ -508,7 +508,7 @@ def traffic_light(nof_steps=256, istep=None, invert=False, negative=False, inter
 
   marker_array = np.array([[0.0, 1, 0, 0],
                            [0.5, 1, 1, 0],
-                           [1.0, 0, 1, 0]], dtype=np.float)
+                           [1.0, 0, 1, 0]], dtype=float)
 
   return _gen_cmap_output(marker_array, nof_steps, istep, invert, negative, interpolation,
                           name='traffic_light')
@@ -551,7 +551,7 @@ def truefalse(nof_steps=256, istep=None, invert=False, negative=False, interpola
   matplotlib.colors.LinearSegmentedColormap : creates a colormap object from a RGB input
   '''
   marker_array = np.array([[0.0, 1, 0, 0],
-                           [1.0, 0, 1, 0]], dtype=np.float)
+                           [1.0, 0, 1, 0]], dtype=float)
 
   return _gen_cmap_output(marker_array, nof_steps, istep, invert, negative, interpolation,
                           name='truefalse')
@@ -597,7 +597,7 @@ def bgr(nof_steps=256, istep=None, invert=False, negative=False, interpolation='
                            [0.4, 0, 0, 1],
                            [0.5, 0, 1, 0],
                            [0.6, 1, 0, 0],
-                           [1, 1, 0, 0]], dtype=np.float)
+                           [1, 1, 0, 0]], dtype=float)
 
   return _gen_cmap_output(marker_array, nof_steps, istep, invert, negative, interpolation,
                           name='bgr')
