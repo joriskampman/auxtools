@@ -26,6 +26,8 @@ import numexpr as ne
 import glob
 import inspect
 from itertools import cycle
+import pyvisa
+import socket
 
 # sub-modules for scipyt
 from scipy.interpolate import interp1d
@@ -111,6 +113,33 @@ class DimensionError(Exception):
 
 
 # FUNCTIONS
+def check_sockets(iprange, port=5025, timeout=1., sufrange=np.r_[2:255]):
+    """ check all sockets in a range """
+    ipparts = iprange.split('.')
+    ipprefix = '.'.join(ipparts[:3])
+
+    # open socket
+    rm = pyvisa.ResourceManager()
+    valid_addresses_list = []
+    for ipsuf in sufrange:
+        ip2chk = ipprefix + '.{:d}'.format(ipsuf)
+        sock_ = socket.socket()
+        sock_.settimeout(timeout)
+        conncode = sock_.connect_ex((ip2chk, port))
+        if conncode == 0:
+            print(" - {:s} --> PASS".format(ip2chk), end='')
+            valid_addresses_list.append(ip2chk)
+            dev = rm.open_resource('TCPIP0::{:s}::{:d}::SOCKET'.format(ip2chk, port))
+            dev.read_termination = '\n'
+            dev.write_termination = '\n'
+            idn = dev.query("*idn?")
+            print(" ({:s})".format(idn))
+        else:
+            print(" - {:s} -- FAIL".format(ip2chk))
+
+    return valid_addresses_list
+
+
 def print_fraction(floatval, dotreplacement, ndec=1):
   """
   print a fraction without using a dot. For instance: 3.3V -> 3V3
@@ -817,6 +846,10 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, cleanup=Fal
 
   # add the legend
   nof_legends = len(legdata)
+  if nof_legends == 0:
+    warnings.warn("There are no legends to create!")
+    return []
+
   if ncols is None:
     ncols = int(0.5 + nof_legends/nrows)
   leg = fig.legend(legdata, labels, loc="upper center", bbox_to_anchor=[0.5, 1.],
