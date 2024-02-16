@@ -26,8 +26,6 @@ import numexpr as ne
 import glob
 import inspect
 from itertools import cycle
-import pyvisa
-import socket
 
 # sub-modules for scipyt
 from scipy.interpolate import interp1d
@@ -114,7 +112,31 @@ class DimensionError(Exception):
 
 # FUNCTIONS
 def check_sockets(iprange, port=5025, timeout=1., sufrange=np.r_[2:255]):
-    """ check all sockets in a range """
+    """
+    check all sockets in a certain IP range
+
+    arguments:
+    ----------
+    iprange : str
+              an IP-range in the form of a string, such as '192.168.1'
+    port : int, default=5025
+           port number, default is the TCP/IP port of 5025
+    timeout : float, default=1.
+              timeout in seconds to wait for a connection to be created
+    sufrange : array-like, default=np.r_[2:255]
+               an array-like containing the suffix range to check. the full range is the default;
+               from 2 upto and including 254. Note that 1 and 255 are not valid component addresses
+
+    returns:
+    --------
+    valid_addresses_list : list
+                           a list containing the addresses with which connection could be
+                           established
+    """
+    # pylint: disable=import-outside-toplevel
+    import pyvisa
+    import socket
+
     ipparts = iprange.split('.')
     ipprefix = '.'.join(ipparts[:3])
 
@@ -127,13 +149,16 @@ def check_sockets(iprange, port=5025, timeout=1., sufrange=np.r_[2:255]):
         sock_.settimeout(timeout)
         conncode = sock_.connect_ex((ip2chk, port))
         if conncode == 0:
-            print(" - {:s} --> PASS".format(ip2chk), end='')
+            print(" - {:s} --> connected".format(ip2chk), end='')
             valid_addresses_list.append(ip2chk)
             dev = rm.open_resource('TCPIP0::{:s}::{:d}::SOCKET'.format(ip2chk, port))
             dev.read_termination = '\n'
             dev.write_termination = '\n'
-            idn = dev.query("*idn?")
-            print(" ({:s})".format(idn))
+            try:
+              idn = dev.query("*idn?")
+              print(" ({:s})".format(idn))
+            except pyvisa.VisaIOError as err:
+              print(" (no identification because of VisaIOError: '{:s}')".format(err.description))
         else:
             print(" - {:s} -- FAIL".format(ip2chk))
 
