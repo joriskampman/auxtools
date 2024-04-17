@@ -35,10 +35,11 @@ from scipy.fftpack import fftshift
 from scipy.signal import find_peaks, convolve2d
 
 # matplotlib sub-modules
+from matplotlib.legend import Legend
 from matplotlib.colors import to_rgb, to_rgba
 from matplotlib.cm import get_cmap
 from matplotlib.gridspec import GridSpec
-from matplotlib.patches import Polygon
+from matplotlib.patches import Polygon, Circle
 import matplotlib.transforms as mtrans
 import matplotlib.dates as mdates
 
@@ -806,20 +807,67 @@ def multiplot(nof_subs, name=None, nof_sub_stacks=1, ratio=5, subs_loc='right',
   return fig, ax0, axs_sub
 
 
-def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, cleanup=False, cleanup_pars={},
+def interpret_linespec(fmt):
+  """
+  convert a linespec string (e.g., 'r.-') to a set of 3 keyword arguments in a dict
+  """
+  markers = ['.', 'o', 'x', '+', '^', 'v', 'd', 's']
+  linestyles = ['-', '--', ':', '-.']
+  colors = ['r', 'g', 'b', 'c', 'm', 'y', 'w', 'k']
+
+  # order is [color][marker][linestyle].. all are optional
+  output = dict()
+  if len(fmt) == 0:
+    return output
+
+  if fmt[0] in colors:
+    output['color'] = fmt[0]
+    fmt = fmt[1:]
+
+  if len(fmt) == 0:
+    return output
+
+  # check if marker is given
+  if fmt[0] in markers:
+    output['marker'] = fmt[0]
+    fmt = fmt[1:]
+
+  if len(fmt) == 0:
+    return output
+
+  if fmt in linestyles:
+    output['linestyle'] = fmt
+
+  return output
+
+
+def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=False, clearup_pars={},
                   buffer_pix=[4, 8], nrows=1, ncols=None, remove_axs_legends=True):
   """
   add a legend to a figure
   """
-  cleanup_dict={'lw': 2,
+  clearup_dict={'lw': 2,
                 'marker': None,
                 'markersize': 5,
                 'alpha': 1.}
-  cleanup_dict.update(cleanup_pars)
+  clearup_dict.update(clearup_pars)
 
   if np.isscalar(buffer_pix):
     buffer_pix = [buffer_pix]*2
 
+  # get the figure instance
+  if fig is None:
+    fig = plt.gcf()
+
+  dpi = fig.get_dpi()
+  hinch = fig.get_size_inches()[1]
+
+  # remove existing figure legend instance (normally there is 0 or 1, not more)
+  legends = [kid for kid in fig.get_children() if isinstance(kid, Legend)]
+  for legend in legends:
+    legend.remove()
+
+  # get the legend data
   if legdata is None:
     legdata = plt.gca()
   elif isinstance(legdata, np.ndarray):
@@ -835,17 +883,20 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, cleanup=Fal
 
   if labels is None:
     labels = [legobj.get_label() for legobj in legdata]
+  elif isinstance(labels, str):
+    labels = [labels]
 
   # check for valid labels
   tf_labels = [False if lab.startswith('_') else True for lab in labels]
   labels = np.array(labels)[tf_labels].tolist()
   legdata = np.array(legdata)[tf_labels].tolist()
 
-  if fig is None:
-    fig = plt.gcf()
-
-  dpi = fig.get_dpi()
-  hinch = fig.get_size_inches()[1]
+  # check if the legdata is a string
+  for ileg, legdata_this in enumerate(legdata):
+    if isinstance(legdata_this, str):
+      legdict_this_line = interpret_linespec(legdata_this)
+      legdata_obj = plt.Line2D([], [], **legdict_this_line)
+      legdata[ileg] = legdata_obj
 
   # check if title is present
   axs = fig.get_axes()
@@ -873,24 +924,25 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, cleanup=Fal
   nof_legends = len(legdata)
   if nof_legends == 0:
     warnings.warn("There are no legends to create!")
-    return []
+    return None
 
   if ncols is None:
     ncols = int(0.5 + nof_legends/nrows)
+
   leg = fig.legend(legdata, labels, loc="upper center", bbox_to_anchor=[0.5, 1.],
                    bbox_transform=trans_sub, borderaxespad=0.2, ncol=ncols,
                    columnspacing=0.4, fontsize=8, edgecolor='k',
                    prop={'size': 7, 'weight': 'bold'})
 
   # modify the legdata and markers
-  if cleanup:
+  if clearup:
     for legobj in leg.legendHandles:
-      if cleanup_dict['marker'] is not None:
-        legobj.set_marker(cleanup_dict['marker'])
+      if clearup_dict['marker'] is not None:
+        legobj.set_marker(clearup_dict['marker'])
         print("something is not fully correct yet. Please check this when applicable")
-      legobj.set_markersize(cleanup_dict['markersize'])
-      legobj.set_linewidth(cleanup_dict['lw'])
-      legobj.set_alpha(cleanup_dict['alpha'])
+      legobj.set_markersize(clearup_dict['markersize'])
+      legobj.set_linewidth(clearup_dict['lw'])
+      legobj.set_alpha(clearup_dict['alpha'])
 
   hleg_dis = leg.get_window_extent().height
   hleg_inch = hleg_dis/dpi
@@ -1452,7 +1504,7 @@ def remove_empty_axes(fig):
   return None
 
 
-def inspector(obj2insp, searchfor=None, maxlen=150):
+def inspector(obj2insp, searchfor=None, maxlen='auto'):
   """
   inspect an object
   """
@@ -2084,7 +2136,7 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', axfi
   if ypos is None:
     if loc.lower().find("upper") > -1 or loc.lower().find("top") > -1:
       ypos = 0.98
-    elif loc.lower().find("lower") > -1or loc.lower().find("bottom") > -1:
+    elif loc.lower().find("lower") > -1 or loc.lower().find("bottom") > -1:
       ypos = 0.02
     elif loc.lower().find("center") > -1:
       ypos = 0.5
@@ -2202,14 +2254,10 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
       return '[]'
 
   types_conv_dict = {str: (strfmt, empty),
-                     int: (intfmt, empty),
-                     np.integer: (intfmt, empty),
-                     float: (floatfmt, empty),
-                     np.floating: (floatfmt, empty),
-                     complex: (cplxfmt, empty),
-                     np.complexfloating: (cplxfmt, empty),
-                     np.bool_: ('{}', empty),
-                     bool: ('{}', empty),
+                     (int, np.integer): (intfmt, empty),
+                     (float, np.floating): (floatfmt, empty),
+                     (complex, np.complexfloating): (cplxfmt, empty),
+                     (bool, np.bool_): ('{}', empty),
                      dict: ("<{:d}-key dict>", len),
                      list: ("<{:d}-list>", len),
                      type(None): ("None", empty),
@@ -2232,6 +2280,8 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
       string = strfmt.format(value)
     elif isinstance(value, dict):
       string = "<{:d}-key dict>".format(len(value))
+    elif isinstance(value, object):
+      string = "name: {:s}".format(value.name)
     else:
       raise TypeError("The value type given ({}) is not recognized".format(type(value)))
 
@@ -2281,19 +2331,14 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
 
   # if not compressed or compressible (after a warning)
   output_parts = []
-  for type_, (fmt_, fcn_) in types_conv_dict.items():
-    for elm in list2glue:
+  for elm in list2glue:
+    for type_, (fmt_, fcn_) in types_conv_dict.items():
       if isinstance(elm, type_):
         output_part = fmt_.format(fcn_(elm))
         output_parts.append(output_part)
+        break  # if found, then break out of for loop
 
-  # fmtlist = list2glue.copy()
-  # fcnlist = list2glue.copy()
-  # for type_ in types_conv_dict:
-  #   fmtlist = [types_conv_dict[type_][0] if isinstance(fmt_, type_) else elm for fmt_ in fmtlist]
-  #   fcnlist = [types_conv_dict[type_][1] if isinstance(fcn_, type_) else elm for fcn_ in fcnlist]
-  # output_parts = [fmtstr.format(fcn(elm)) for (fcn, fmtstr, elm)
-                  # in zip(fcnlist, fmtlist, list2glue)]
+  # check if a maximum is specified and strip accordingly
   if max_num_elms is None:
     max_num_elms = np.inf
   num_elms_to_pick = min(max_num_elms, len(output_parts))
@@ -2356,6 +2401,85 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
     output = output_list
 
   return output
+
+
+def print_matrix(mat, ndigits=7, ndec=-1, force_sign=False, as_single=False, spiffy=False, sep=', '):
+  """
+  print a 2D matrix as either a matrix or a list of lists on a single row
+
+  arguments:
+  ----------
+  mat : np.array 2D
+        A 2D np.ndarray containing (complex) floats, integers or booleans
+  nfloat : int, default=7
+           The number of digits in total per element of the matrix
+  ndec : int, default=-1
+         The number of decimal numbers in case of floats. A value of -1 implies it being calculated
+         by the actual values and the set `ndigits` argument
+  as_single : bool, default=False
+              (to be implemented) whether to return it as a single row of the form
+              [[...], [...],...]
+  spiffy : bool, default=False
+           (to be implemented yet)
+
+  returns:
+  --------
+  None
+  """
+  # ==== check the dimensions and make array-like into array ==========
+  mat = arrayify(mat)  
+  if mat.ndim != 2:
+    raise DimensionError("The dimension is {:d}. Only 2D is accepted".format(mat.ndim))
+
+  # ============ set the formatting ===========================================
+  # should allow nice rectangular shape
+  if isinstance(mat.item(0), (np.floating, float, np.integer, int)):
+    # find the maximum integer
+    with np.errstate(divide='ignore'):
+      logfloats = np.log10(np.abs(mat))
+    # cap the bottom values
+    logfloats[logfloats < 1.] = 1.
+    logfloats_max = np.nanmax(logfloats)
+    # get the power of 10 (is the number of digits before the .)
+    ndigits_int_part = np.int_(np.ceil(logfloats_max))
+    
+    # check if there are minus signs
+    ndigits_sign_in_data = 1 if np.nanmin(mat) < 0 else 0
+    # get the addition of a '+' sign or not
+    signstr = '+' if force_sign else ''
+    ndigits_sign = np.fmax(ndigits_sign_in_data, force_sign)
+    ndec = ndigits - ndigits_int_part - 1 - ndigits_sign
+    
+    if isinstance(mat.item(0), (np.floating, float)):
+      fmt = "{{{:s}}}".format(':{:s}{:d}.{:d}f'.format(signstr, ndigits, ndec))
+    else:
+      fmt = "{{{:s}}}".format(':{:s}{:d}d'.format(signstr, ndigits-ndigits_sign))
+      
+  elif isinstance(mat.item(0), bool):
+    fmt = "{}"
+  else:
+    raise ValueError("The dtype of the array is '{:s}', which is not understood"
+                     .format(mat.dtype))
+
+  # print outs
+  str2print_list = []
+  nr = mat.shape[0]
+  for ir in range(nr):
+    str2print = print_list(mat[ir, :].tolist(), floatfmt=fmt, pfx="[", sfx="]", sep=sep)
+    str2print_list.append(str2print)
+
+  # choose how to display
+  if as_single:
+    print("[", end="")
+    for str2print in str2print_list:
+      print("{:s}, ".format(str2print), end="")
+    print("\b\b]")
+  else:
+    for str2print in str2print_list:
+      print("{:s}".format(str2print))
+    pass
+
+  return None
 
 
 def extract_value_from_strings(input2check, pattern2match, output_fcn=None, output_type=None,
@@ -4453,7 +4577,35 @@ def logmod(x, multiplier=20):
   return output
 
 
-def is_in_bracket(value, bracket_, include_edges=[True, False]):
+def are_in_bracket(values, bracket_, include_edges=[True, True], merge_result=True,
+                   overlap_is_ok=False, order='C'):
+  """
+  check if a set of values are inside a bracket
+  """
+  valarr = arrayify(values)
+
+  # keep shape to unravel it back later after raveling
+  valshape = np.shape(valarr)
+
+  invec = np.ravel(valarr, order=order)
+  outvec = np.zeros_like(invec, dtype=bool)
+  for ival, val in enumerate(invec):
+    is_inside = is_in_bracket(val, bracket_, include_edges=include_edges)
+    outvec[ival] = is_inside
+
+  if merge_result:
+    if overlap_is_ok:
+      output = bool(np.sum(outvec))
+    else:
+      output = bool(np.prod(outvec))
+  else:
+    # unravel back
+    output = np.reshape(outvec, valshape, order=order)
+
+  return output
+
+
+def is_in_bracket(value, bracket_, include_edges=[True, True]):
   """ check if a value is in a bracket """
   if isinstance(include_edges, bool):
     include_edges = [include_edges]*2
@@ -5183,7 +5335,6 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
     format_str_list = []
     datalist = args
 
-  # make the xs and ys (list of) vectors
   if len(datalist) == 1:
     xdata = None
     ydata = np.squeeze(datalist[0])
@@ -5193,6 +5344,13 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
     ydata = np.squeeze(args[1])
   else:
     raise ValueError("There are more than 2 input arguments given ({})".format(len(args)))
+
+  # check dimensions (prevent this weird 0 dimension thing)
+  if xdata is not None and xdata.ndim == 0:
+    xdata = np.array([xdata])
+  
+  if ydata.ndim == 0:
+    ydata = np.array([ydata])
 
   # check if empty
   if not np.isscalar(ydata) and len(ydata) == 0:
@@ -5318,7 +5476,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
         ax.plot(xs[-1], ys[-1], 'o', mfc='none', markersize=10, markeredgewidth=2,
                 alpha=0.5, color=endpoint_color)
 
-  is_label_present = np.alltrue([len(label) > 0 for label in label_list])
+  is_label_present = np.all([len(label) > 0 for label in label_list])
   if is_label_present and legend:
     legkwargs_base = dict(fontsize='small', numpoints=1, scatterpoints=1, **legkwargs)
     legkwargs_base.update(legkwargs)
@@ -5375,12 +5533,16 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   plt.draw()
   plt.pause(1e-2)
 
+  retval = ax
   if return_lobjs:
+    # check if it is a singleton
     if len(lobjs) == 1:
       lobjs = lobjs[0]
-    return (ax, lobjs)
-  else:
-    return ax
+
+    # create retval tuple
+    retval = (ax, lobjs)
+
+  return retval
 
 
 def center_plot_around_origin(ax=None, aspect='equal'):
@@ -6762,6 +6924,43 @@ def distance_point_to_line(xpt, ypt, line, linefmt='ax+by=c'):
   return delta_c
 
 
+def distance_point_to_line_segment_INCORRECT(pt, pline1, pline2):
+  """
+  calculate the distance between a line SEGMENT and a point
+  
+  for the distance between a point and a INFINITE line given by ax+b, see 'distance_point_to_line'
+  
+  arguments:
+  ----------
+  pt : 2-array-like of floats
+       The point given as an array-like of 2 elements (x and y)
+  pline1 : 2-array-like of floats
+           The first end-point of the line segment in (x, y) coordinates
+  pline2 : 2-array-like of floats
+           The second end-point of the line segment in (x, y) coordinates
+  
+  returns:
+  --------
+  retval : [ float | bool]
+           if test_against is None, the return value is the shortest distance between the point
+           and the line segment.
+           if test_against is a float, the return value is a boolean indicating whether the
+           distance is LARGER than the test_against value.
+  """
+  # break into pieces for easier reading
+  x0, y0 = pt
+  x1, y1 = pline1
+  x2, y2 = pline2
+  
+  # algo is taken from wikipedia 'Distance_from_a_point_to_a_line' page!
+  numerator = np.abs((x2 - x1)*(y1 - y0) - (x1 - x0)*(y2 - y1))
+  denominator = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+  dist = numerator/denominator
+  
+  # this distance is the entire line, it must be cut
+  return dist
+
+
 def line_coefs_from_points(x1, y1, x2, y2, fmt='ax+by=c'):
   """
   get the coefficient for a line from two points
@@ -6821,14 +7020,81 @@ def is_point_on_line(lp1, lp2, pt, infinite_line=True):
     else:
       # check if it is between the lp1 and lp2
       if np.fmin(lp1[0], lp2[0]) <= pt[0] <= np.fmax(lp1[0], lp2[0]):
-        print("horizontal coordinate OK")
         if np.fmin(lp1[1], lp2[1]) <= pt[1] <= np.fmax(lp1[1], lp2[1]):
-          print("vertical coordinate OK")
           is_on_line = True
 
   return is_on_line
 
 
+def intersections_line_and_circle(circ, p1, p2, is_segment=False, makeplot=False):
+  """ 
+  Find the intersection points (0, 1 or 2) of a line and an circle
+  """
+  # unpack the circle definition (x, y and radius)
+  x1_, y1_ = p1
+  x2_, y2_ = p2
+  xc, yc, rc = circ
+  
+  # correct for the xc, yc not being equal to zero..to be able to use a simpler equation
+  x1 = x1_ - xc
+  x2 = x2_ - xc
+  y1 = y1_ - yc
+  y2 = y2_ - yc
+
+  # some helper variables
+  dx = x2 - x1
+  dy = y2 - y1
+  dr = np.sqrt(dx**2 + dy**2)
+  D = np.linalg.det(np.array([[x1, x2],
+                              [y1, y2]]))
+
+  # calculate the number of intersection points
+  det = (rc**2)*(dr**2)-D**2
+  if det < 0:
+    xis = np.array([])
+    yis = np.array([])
+
+  # else: there is at least 1 intersecting point
+  else:
+    # calculate points of intersection for the infinite line (not a segment yet)
+    xis = (D*dy + np.array([1, -1])*np.sign(dy)*dx*np.sqrt((rc*dr)**2 - D**2))/(dr**2)
+    yis = (-D*dx + np.array([1, -1])*np.abs(dy)*np.sqrt((rc*dr)**2 - D**2))/(dr**2)
+    
+    # correct for the offset again
+    xis += xc
+    yis += yc
+  
+  # check against a segment
+  if is_segment:
+    is_valids = []
+    for xi, yi in zip(xis, yis):
+      is_valid = is_point_on_line(p1, p2, (xi, yi), infinite_line=False)
+      is_valids.append(is_valid)
+    
+    # keep only the valid ones
+    xis = xis[is_valids]
+    yis = yis[is_valids]
+
+  # plot
+  if makeplot:
+    colors = ['g', 'b', 'r']
+    color = colors[1 + np.sign(det).astype(int)]
+    # plot the circle
+    fig, ax = plt.subplots(1, 1, num=figname("intersections line and circle plot"))
+    qplot(ax, (x1_, x2_), (y1_, y2_), 'ko-', aspect='equal')
+    if len(xis) > 0:
+      qplot(ax, xis, yis, 'ko', mfc='none')
+    circart = Circle((xc, yc), rc, fc=color, ec='k')
+    
+    ax.add_patch(circart)
+    ax.relim()
+    ax.autoscale(True)
+    plt.draw()
+    plt.pause(1e-2)
+  
+  return xis, yis
+  
+  
 def intersections_line_and_box(bl, tr, line, line_fmt='ax+by=c'):
   """
   calculate the intersection points for a line with a rectangular box
