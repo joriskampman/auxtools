@@ -2240,7 +2240,7 @@ def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fil
 
 def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d}',
                strfmt='{:s}', cplxfmt='{:f}', compress=False, maxlen=None,
-               spiffy=False, max_num_elms=None, **short_kws):
+               spiffy=False, max_num_elms=None, check_if_int=True, **short_kws):
   """
   glue a list of elements to a string
   """
@@ -2328,6 +2328,12 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
 
   # if not compressed or compressible (after a warning)
   output_parts = []
+  
+  # check if integer
+  if check_if_int:
+    list2glue = [int(np.sign(elm)*0.5 + float(elm)) if np.abs(float(elm)).is_integer() else elm
+                 for elm in list2glue]
+
   for elm in list2glue:
     for type_, (fmt_, fcn_) in types_conv_dict.items():
       if isinstance(elm, type_):
@@ -2400,7 +2406,8 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
   return output
 
 
-def print_matrix(mat, ndigits=7, ndec=-1, force_sign=False, as_single=False, sep=', '):
+def print_matrix(mat, pfx="", ndigits=7, ndec=-1, force_sign=False, as_single=False, sep=', ',
+                 check_if_int=True):
   """
   print a 2D matrix as either a matrix or a list of lists on a single row
 
@@ -2408,8 +2415,8 @@ def print_matrix(mat, ndigits=7, ndec=-1, force_sign=False, as_single=False, sep
   ----------
   mat : np.array 2D
         A 2D np.ndarray containing (complex) floats, integers or booleans
-  nfloat : int, default=7
-           The number of digits in total per element of the matrix
+  ndigits : int, default=7
+            The number of digits in total per element of the matrix
   ndec : int, default=-1
          The number of decimal numbers in case of floats. A value of -1 implies it being calculated
          by the actual values and the set `ndigits` argument
@@ -2425,7 +2432,9 @@ def print_matrix(mat, ndigits=7, ndec=-1, force_sign=False, as_single=False, sep
   """
   # ==== check the dimensions and make array-like into array ==========
   mat = arrayify(mat)
-  if mat.ndim != 2:
+  if mat.ndim < 2:
+    mat = mat.reshape(1, -1)
+  elif mat.ndim > 2:
     raise DimensionError(f"The dimension is {mat.ndim}. Only 2D is accepted")
 
   # ============ set the formatting ===========================================
@@ -2439,14 +2448,21 @@ def print_matrix(mat, ndigits=7, ndec=-1, force_sign=False, as_single=False, sep
     logfloats_max = np.nanmax(logfloats)
     # get the power of 10 (is the number of digits before the .)
     ndigits_int_part = np.int_(np.ceil(logfloats_max))
-
-    # check if there are minus signs
-    ndigits_sign_in_data = 1 if np.nanmin(mat) < 0 else 0
-    # get the addition of a '+' sign or not
+    
+    # get the number of digits to be used for the sign (0 or 1)
     signstr = '+' if force_sign else ''
+    ndigits_sign_in_data = 1 if np.nanmin(mat) < 0 else 0
+  
     ndigits_sign = np.fmax(ndigits_sign_in_data, force_sign)
-    ndec = ndigits - ndigits_int_part - 1 - ndigits_sign
-
+  
+    # calculate either the number of decimals or the ndigits
+    if ndec < 0:
+      # get the addition of a '+' sign or not
+      ndec = ndigits - ndigits_int_part - 1 - ndigits_sign
+    else:
+      # calculate the ndigits_sign
+      ndigits = ndigits_int_part + 1 + ndigits_sign + ndec    
+      
     if isinstance(mat.item(0), (np.floating, float)):
       fmt_content = f":{signstr}{ndigits}.{ndec}f"
       fmt = f"{{{fmt_content}}}"
@@ -2460,21 +2476,25 @@ def print_matrix(mat, ndigits=7, ndec=-1, force_sign=False, as_single=False, sep
     raise ValueError(f"The dtype of the array is '{mat.dtype}', which is not understood")
 
   # print outs
+  intfmt = "{:d}"
+  if check_if_int:
+    intfmt = "{:" + signstr + "{:d}d".format(ndigits) + "}"
   str2print_list = []
   nr = mat.shape[0]
   for ir in range(nr):
-    str2print = print_list(mat[ir, :].tolist(), floatfmt=fmt, pfx="[", sfx="]", sep=sep)
+    str2print = print_list(mat[ir, :].tolist(), floatfmt=fmt, intfmt=intfmt, pfx="[", sfx="]", sep=sep)
     str2print_list.append(str2print)
 
   # choose how to display
   if as_single:
-    print("[", end="")
+    print(f"{pfx}[", end="")
     for str2print in str2print_list:
       print(f"{str2print}, ", end="")
     print("\b\b]")
   else:
-    for str2print in str2print_list:
-      print(f"{str2print}")
+    for iline, str2print in enumerate(str2print_list):
+      print(f"{pfx}{str2print}")
+      pfx = " "*len(pfx)
 
   return None
 
