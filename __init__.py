@@ -2441,11 +2441,13 @@ def print_matrix(mat, pfx=None, ndigits=7, ndec=-1, force_sign=False, as_single=
   if isinstance(mat.item(0), (np.floating, float, np.integer, int)):
     # find the maximum integer
     with np.errstate(divide='ignore'):
-      logfloats = np.log10(np.abs(mat))
+      logfloats_max = np.log10(np.abs(mat.ravel()).max())
+      # mat_ = mat[mat < 1] = 1.0
+      # logfloats = np.log10(np.abs(mat_))
 
-    # cap the bottom values
-    logfloats[logfloats < 1.] = 1.
-    logfloats_max = np.nanmax(logfloats)
+    # # cap the bottom values
+    # logfloats[logfloats < 1.] = 1.
+    # logfloats_max = np.nanmax(logfloats)
     # get the power of 10 (is the number of digits before the .)
     ndigits_int_part = np.int_(np.ceil(logfloats_max))
 
