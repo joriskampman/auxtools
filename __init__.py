@@ -2240,7 +2240,7 @@ def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fil
 
 def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d}',
                strfmt='{:s}', cplxfmt='{:f}', compress=False, maxlen=None,
-               spiffy=False, max_num_elms=None, check_if_int=True, **short_kws):
+               spiffy=False, max_num_elms=None, check_for_ints=False, **short_kws):
   """
   glue a list of elements to a string
   """
@@ -2322,9 +2322,9 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
         output_string = (pfx + fmt.format(minval) + ":" + fmt.format(step) +
                         ":" + fmt.format(maxval) + sfx)
       return output_string
-    else:
-      warnings.warn("This list cannot be compressed in min:step:max, "
-                    + "since there is not a single step", category=UserWarning)
+
+    warnings.warn("This list cannot be compressed in min:step:max, "
+                  + "since there is not a single step", category=UserWarning)
 
   # if not compressed or compressible (after a warning)
   output_parts = []
@@ -2335,6 +2335,9 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
                  for elm in list2glue]
 
   for elm in list2glue:
+    if check_for_ints:
+      if isinstance(elm, (np.floating, float)):
+        elm = int(np.sign(elm)*0.5 + elm) if elm.is_integer() else elm
     for type_, (fmt_, fcn_) in types_conv_dict.items():
       if isinstance(elm, type_):
         output_part = fmt_.format(fcn_(elm))
@@ -2406,8 +2409,8 @@ def print_dict(dict2glue, sep=": ", pfx='', sfx='', glue_list=False, glue="\n", 
   return output
 
 
-def print_matrix(mat, pfx="", ndigits=7, ndec=-1, force_sign=False, as_single=False, sep=', ',
-                 check_if_int=True):
+def print_matrix(mat, pfx=None, ndigits=7, ndec=-1, force_sign=False, as_single=False, sep=', ',
+                 check_for_ints=True):
   """
   print a 2D matrix as either a matrix or a list of lists on a single row
 
@@ -2430,22 +2433,27 @@ def print_matrix(mat, pfx="", ndigits=7, ndec=-1, force_sign=False, as_single=Fa
   --------
   None
   """
+  if pfx is None:
+    pfx = ''
+
   # ==== check the dimensions and make array-like into array ==========
   mat = arrayify(mat)
   if mat.ndim < 2:
     mat = mat.reshape(1, -1)
-  elif mat.ndim > 2:
-    raise DimensionError(f"The dimension is {mat.ndim}. Only 2D is accepted")
+    # raise DimensionError(f"The dimension is {mat.ndim}. Only 2D is accepted")
 
   # ============ set the formatting ===========================================
   # should allow nice rectangular shape
   if isinstance(mat.item(0), (np.floating, float, np.integer, int)):
     # find the maximum integer
     with np.errstate(divide='ignore'):
-      logfloats = np.log10(np.abs(mat))
-    # cap the bottom values
-    logfloats[logfloats < 1.] = 1.
-    logfloats_max = np.nanmax(logfloats)
+      logfloats_max = np.log10(np.abs(mat.ravel()).max())
+      # mat_ = mat[mat < 1] = 1.0
+      # logfloats = np.log10(np.abs(mat_))
+
+    # # cap the bottom values
+    # logfloats[logfloats < 1.] = 1.
+    # logfloats_max = np.nanmax(logfloats)
     # get the power of 10 (is the number of digits before the .)
     ndigits_int_part = np.int_(np.ceil(logfloats_max))
     
@@ -2454,35 +2462,30 @@ def print_matrix(mat, pfx="", ndigits=7, ndec=-1, force_sign=False, as_single=Fa
     ndigits_sign_in_data = 1 if np.nanmin(mat) < 0 else 0
   
     ndigits_sign = np.fmax(ndigits_sign_in_data, force_sign)
-  
-    # calculate either the number of decimals or the ndigits
-    if ndec < 0:
-      # get the addition of a '+' sign or not
+
+    if ndec == -1:
       ndec = ndigits - ndigits_int_part - 1 - ndigits_sign
     else:
-      # calculate the ndigits_sign
-      ndigits = ndigits_int_part + 1 + ndigits_sign + ndec    
-      
-    if isinstance(mat.item(0), (np.floating, float)):
-      fmt_content = f":{signstr}{ndigits}.{ndec}f"
-      fmt = f"{{{fmt_content}}}"
+      ndigits = ndec + ndigits_int_part + 1 + ndigits_sign
+
+    # the integer formatting is only required in case of 2D
+    if mat.squeeze().ndim == 2 and not as_single:
+      # determine the float and integer formats
+      floatfmt_content = f":{signstr}{ndigits}.{ndec}f"
+      floatfmt = f"{{{floatfmt_content}}}"
+      intfmt_content = f":{signstr}{ndigits}d"
+      intfmt = f"{{{intfmt_content}}}"
     else:
-      fmt_content = f":{signstr}{ndigits-ndigits_sign}d"
-      fmt = f"{{{fmt_content}}}"
+      floatfmt_content = f":{signstr}0.{ndec}f"
+      floatfmt = f"{{{floatfmt_content}}}"
+      intfmt = "{:d}"
 
-  elif isinstance(mat.item(0), bool):
-    fmt = "{}"
-  else:
-    raise ValueError(f"The dtype of the array is '{mat.dtype}', which is not understood")
-
-  # print outs
-  intfmt = "{:d}"
-  if check_if_int:
-    intfmt = "{:" + signstr + "{:d}d".format(ndigits) + "}"
+    # print outs
   str2print_list = []
   nr = mat.shape[0]
   for ir in range(nr):
-    str2print = print_list(mat[ir, :].tolist(), floatfmt=fmt, intfmt=intfmt, pfx="[", sfx="]", sep=sep)
+    str2print = print_list(mat[ir, :].tolist(), floatfmt=floatfmt, intfmt=intfmt, pfx="[", sfx="]",
+                           sep=sep, check_for_ints=check_for_ints)
     str2print_list.append(str2print)
 
   # choose how to display
@@ -2492,9 +2495,9 @@ def print_matrix(mat, pfx="", ndigits=7, ndec=-1, force_sign=False, as_single=Fa
       print(f"{str2print}, ", end="")
     print("\b\b]")
   else:
-    for iline, str2print in enumerate(str2print_list):
+    for str2print in str2print_list:
       print(f"{pfx}{str2print}")
-      pfx = " "*len(pfx)
+      pfx = ' '*len(pfx)
 
   return None
 
@@ -2943,7 +2946,7 @@ def make_array_like(input_, array_like):
         dtype = types.pop()
       # if different types -> dtype=object
       else:
-        dtype = np.object
+        dtype = np.object_
       output = np.array(output, dtype=dtype)
   elif array_like == 'tuple':
     output = (*output,)
