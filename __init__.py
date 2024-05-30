@@ -2330,7 +2330,7 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
   output_parts = []
   
   # check if integer
-  if check_if_int:
+  if check_for_ints:
     list2glue = [int(np.sign(elm)*0.5 + float(elm)) if np.abs(float(elm)).is_integer() else elm
                  for elm in list2glue]
 
