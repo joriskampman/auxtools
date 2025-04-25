@@ -266,7 +266,7 @@ def print_pose_dict(pose):
   rotax, rotang = convert_quaternion_to_axis_angle(pose['orientation'])
 
   print("orientation")
-  print(f"  axis:")
+  print("  axis:")
   print(f"    x: {rotax[0]:0.2f}")
   print(f"    y: {rotax[1]:0.2f}")
   print(f"    z: {rotax[2]:0.2f}")
@@ -680,8 +680,25 @@ def get_background_separation_value(imint, nof_bins='doane'):
 
 
 def scale_for_objects(imint, percentile, nof_bins='doane'):
-  """
+  """ scale for objects
 
+  scale a vmin and vmax for the objects in an image
+
+  arguments:
+  ----------
+  imint : ndarray of ints
+          An image as an integer NxM array
+  percentile : float
+               The percentile between which the valid samples lie
+  nof_bins : [str | int], default='doane'
+             The number of bins for the histogram. See np.histogram for all the options
+
+  returns:
+  --------
+  vmin : float
+         The minimum value for value scaling
+  vmax : float
+         The maximum value for value scaling
   """
   binedges = np.histogram_bin_edges(imint, bins=nof_bins)
   bincenters = binedges[:-1] + np.diff(binedges)/2
@@ -916,7 +933,7 @@ def check_sockets(iprange, port=5025, timeout=1., sufrange=np.r_[2:255]):
                            a list containing the addresses with which connection could be
                            established
     """
-    # pylint: disable=import-outside-toplevel,import_error
+    # pylint: disable=C0415
     import pyvisa
     import socket
 
@@ -2466,10 +2483,9 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
       elif isinstance(prop, object):
         item_for_list = [propname, 'object', prop.__class__.__name__]
       else:
-        assert_never(item_for_list)
         raise TypeError(f"the property type ({type(prop)}) is not valid")
 
-      list_to_print.append(item_for_list)
+      list_to_print.append(item_for_list)  # pylint: disable=E0606
     print_in_columns(list_to_print, what2keep='begin', hline_at_index=1, hline_marker='.',
                      maxlen=maxlen, shorten_last_col=True)
   markerline("=", text=" End of class content ")
@@ -3023,6 +3039,8 @@ def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, geo='ellipse', no
   sf = 5.99 corresponds to the 95% confidence interval
   """
   cov_to_calc = False
+  cov = None
+  data = None
   if isinstance(data_or_cov, np.ndarray) and data_or_cov.shape == (2, 2):
     cov = data_or_cov
   elif isinstance(data_or_cov, (list, tuple, np.ndarray)):
@@ -3309,6 +3327,8 @@ def print_matrix(mat, pfx=None, ndigits=7, ndec=-1, force_sign=False, as_single=
 
   # ============ set the formatting ===========================================
   # should allow nice rectangular shape
+  floatfmt : str = ''
+  intfmt: str = ''
   if isinstance(mat.item(0), (np.floating, float, np.integer, int)):
     # find the maximum integer
     with np.errstate(divide='ignore'):
@@ -4217,7 +4237,7 @@ def spectrum(signal, fs=1., nof_taps=None, scaling=1., center_zero=True, full=Tr
     ax.set_xlabel(f"Frequency [{sidict['sym']}Hz]")
     ax.set_ylabel(yscale)
     if yrange is not None:
-      ax.set_ylim(top=ymax, bottom=ymin)
+      ax.set_ylim(top=ymax, bottom=ymin)  # pylint: disable=E0601
     plt.show(block=False)
     plt.draw()
 
@@ -4846,6 +4866,8 @@ def subset_str(arr, fmt='{}', nof_at_start=2, nof_at_end=1):
     arrsize = len(arr)
   elif isinstance(arr, np.ndarray):
     arrsize = arr.size
+  else:
+    raise TypeError(f"The type of 'arr' is {type(arr)}, which is not implemented!")
 
   if arrsize <= min_req_elms:
     subset_str_new = '[' + ', '.join([fmt.format(elm) for elm in arr]) + ']'
@@ -4953,7 +4975,7 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   requested
   '''
 
-  def pressed_return(event=None):
+  def pressed_return():
     master.quit()
 
     return None
@@ -5935,6 +5957,8 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
                                    [data[-1]]*nof_ext_samples))
       else:
         raise ValueError(f"The given value for 'edge' ({edge}) is not valid!")
+    else:
+      raise TypeError(f"The type for argument 'edge' ({type(edge)} is not implemented")
 
     # determine convolution mode and filter
     if data_ext.size > data.size:
@@ -7405,7 +7429,7 @@ def wrap_string(string, maxlen, glue=True, offset=None, offset_str=' '):
           ibreak = maxlen - 1
 
     # give the line and the remaining leftover
-    string = leftover[:(ibreak+1)].strip()
+    string = leftover[:(ibreak+1)].strip()  # pylint: disable=E0606
     lines.append(string)
     leftover = leftover[(ibreak+1):]
 
