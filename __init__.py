@@ -10,12 +10,14 @@ or other thales-based links
 # pylint: disable=wrong-import-order
 # pylint: disable=useless-return
 # basics
+from typing import assert_never
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import warnings
 import tkinter as tk
+from tkinter import filedialog
 import time
 
 # more exotic ones
@@ -37,9 +39,11 @@ from scipy.signal import find_peaks, convolve2d
 # matplotlib sub-modules
 from matplotlib.legend import Legend
 from matplotlib.colors import to_rgb, to_rgba
+import matplotlib.colors as mcolors
 from matplotlib.cm import get_cmap
 from matplotlib.gridspec import GridSpec
-from matplotlib.patches import Polygon, Circle
+from matplotlib.patches import Polygon, Circle, Rectangle, Wedge, CirclePolygon, Ellipse, \
+                               FancyArrow, RegularPolygon
 import matplotlib.transforms as mtrans
 import matplotlib.dates as mdates
 
@@ -111,7 +115,785 @@ class DimensionError(Exception):
   """ and exception for when some reshaping cannot work due to incorrect dimensions """
 
 
-# FUNCTIONS
+def multiply_quaternions(*quats):
+  """ multiply many quaternions
+
+  """
+  # pick the first one as a starting point
+  q1 = (1., 0., 0., 0.)
+  w1 = q1[0]
+  v1 = np.asarray(q1[1:])
+
+  for quat in quats:
+    if isinstance(quat, dict):
+      quat = quaternion_dict_to_array(quat)
+
+    w2 = quat[0]
+    v2 = np.asarray(quat[1:])
+
+    w_mult = w1*w2 - v1.dot(v2)
+    v_mult = w1*v2 + w2*v1 + np.cross(v1, v2)
+
+    w1 = w_mult
+    v1 = v_mult
+
+  return (w1, *v1)
+
+
+def convert_normal_to_quaternion(normal, as_dict=False):
+  """ convert a rotation given by a normal to a quaternion
+
+  arguments:
+  ----------
+  normal : 3-array-like of floats
+
+  returns:
+  --------
+  quat: 4-tuple of floats
+        The quaternion according to the format q=(w, x, y, z)
+  """
+  normal = np.asarray(normal)
+  zvec = np.array([0., 0., 1.])
+  if np.all(np.isclose(zvec, normal)):
+    quat = np.asarray([1., 0., 0., 0.])
+  elif (np.all(np.isclose(zvec, -1*normal))):
+    quat = np.asarray([0., 1., 0., 0.])
+  else:
+    rotvec = np.cross(zvec, normal)
+    rotvec_n = rotvec/np.linalg.norm(rotvec)
+
+    theta = np.arccos(normal.dot(zvec.T)).item()
+    # build quaternion
+    quat_final_part = (rotvec_n*np.sin(theta/2)).ravel().tolist()
+    quat = [np.cos(theta/2)] + quat_final_part
+
+
+  if as_dict:
+    qdict = quaternion_as_dict(quat)
+    return qdict
+
+  return np.asarray(quat)
+
+
+def transform_points_via_pose(points, pose):
+  """ transform point(s) via a pose
+
+
+  """
+  # some shaping of points
+  points = np.asarray(points)
+  # if 1-dim vector, add a dimension
+  if points.ndim == 1:
+    points = points.reshape(3, 1)
+
+  # must be shaped to 3xN
+  if points.shape[0] != 3:
+    points = points.T
+
+  # convert to pos(ition) and quat(ernion) arrays first
+  pos, quat = pose_dict_to_arrays(pose)
+
+  # ----------------- translation first -----------------------------------------
+  points_trans = points + pos.reshape(3, 1)
+
+  # ----------------- rotate ---------------------------------------------------
+  # use quaternion multiplication
+  points_trans_rot = rotate_via_quaternion(points_trans, quat)
+
+  return points_trans_rot
+
+
+def combine_poses(*poses):
+  """ combine poses in succession
+
+  """
+  p1, q1 = pose_dict_to_arrays(poses[0])
+  for pose in poses[1:]:
+
+    p2, q2 = pose_dict_to_arrays(pose)
+
+    q3 = multiply_quaternions(q2, q1)  # note the order.. very counter-intuitive!
+
+    # first rotate all back, and then translate
+    # TODO: find out why this is differently ordered that what chatgpt/deepseek mentioned!!!
+    R2 = convert_quaternion_to_rotation_matrix(q2)
+
+    p3 = p2 + R2.dot(p1)
+
+    # prepare next iteration
+    p1 = p3
+    q1 = q3
+
+  pose = build_pose_dict(p3, q3)
+
+  return pose
+
+
+def quaternion_as_dict(qvec, scalar_first=True):
+  """ pack a quaternion vector in a dictionary
+
+  arguments:
+  ----------
+  quat : 4-array-like of floats
+         contains the 4 elements of a quaternion.
+  scalar_first: bool, default=True
+                whether the first (True) or last (False) element of the qvec is the scalar
+
+  returns:
+  --------
+  qdict : dict
+          contains the quaternion formatted as a dictionary
+  """
+  qkeys = ('w', 'x', 'y', 'z')
+  if not scalar_first:
+    qkeys = ('x', 'y', 'z', 'w')
+
+  # build the dictionary
+  qdict = dict(zip(qkeys, qvec))
+
+  return qdict
+
+
+def print_pose_dict(pose):
+  """ print a pose dictionary
+
+  """
+  print("position:")
+  print(f"  x: {pose['position']['x']:0.2f}")
+  print(f"  y: {pose['position']['y']:0.2f}")
+  print(f"  z: {pose['position']['z']:0.2f}")
+
+  rotax, rotang = convert_quaternion_to_axis_angle(pose['orientation'])
+
+  print("orientation")
+  print(f"  axis:")
+  print(f"    x: {rotax[0]:0.2f}")
+  print(f"    y: {rotax[1]:0.2f}")
+  print(f"    z: {rotax[2]:0.2f}")
+  print(f"  angle: {np.rad2deg(rotang):0.2f} [deg]")
+
+
+def convert_axis_angle_to_quaternion(rotax, ang, angle_units='rad', as_dict=False):
+  """ convert a rotation via axis and angle pair to a quaternion
+
+  arguments:
+  ----------
+  rotax : 3-array-like of floats
+          The axis of rotation. Normalization is done in this function
+  ang : float
+        The angle of rotation
+
+  returns:
+  --------
+  quat : 4-array of floats
+         normalized quaternion
+  """
+  # convert degrees to radians
+  if angle_units.startswith('deg'):
+    ang = np.deg2rad(ang)
+
+  # normalize the axis
+  rotax = np.asarray(rotax).astype(float)
+  rotax /= np.linalg.norm(rotax)
+
+  w = np.cos(ang/2)
+  sf = np.sin(ang/2)  # scale vector for x, y and z components
+  x, y, z = sf*rotax
+
+  quat = np.array([w, x, y, z])
+
+  if as_dict:
+    qdict = quaternion_as_dict(quat)
+    return qdict
+
+  return quat
+
+
+def quaternion_dict_to_array(qdict):
+  """ convert a quaternion dict to an array
+
+  """
+  if isinstance(qdict, dict):
+    return np.asarray([qdict['w'], qdict['x'], qdict['y'], qdict['z']])
+  return qdict
+
+
+def position_dict_to_array(pdict):
+  """ convert a position dict to an array
+
+  """
+  if isinstance(pdict, dict):
+    return np.asarray([pdict['x'], pdict['y'], pdict['z']])
+  return pdict
+
+
+def pose_dict_to_arrays(pose_dict):
+  """ conver the pose dictionary to 2 arrays
+
+
+  """
+  position = position_dict_to_array(pose_dict['position'])
+  quat = quaternion_dict_to_array(pose_dict['orientation'])
+
+  return position, quat
+
+
+def convert_quaternion_to_axis_angle(quat):
+  """ convert a quaternion to a normal vector"""
+  if isinstance(quat, dict):
+    # it is a pose dict
+    quat = quaternion_dict_to_array(quat)
+
+  w, x, y, z = quat
+  vec = np.asarray([x, y, z])
+  nvec = np.linalg.norm(vec)
+
+  rotvec = vec/nvec
+  theta = 2*np.arctan2(nvec, w)
+
+  return rotvec, theta
+
+
+def invert_quaternion(quat):
+  """ calculate the inverse of a quaternion
+
+  q_inv = (w, -x, -y, -z)
+  """
+  as_dict = isinstance(quat, dict)
+
+  quat = quaternion_dict_to_array(quat)
+
+  iquat = np.asarray((quat[0], -quat[1], -quat[2], -quat[3]))
+  if as_dict:
+    iquat = quaternion_as_dict(iquat)
+
+  return iquat
+
+
+def invert_pose(pose):
+  """ invert a pose
+
+  """
+  pos, quat = pose_dict_to_arrays(pose)
+
+  # invert the quaternion
+  invquat = invert_quaternion(quat)
+
+  invR = convert_quaternion_to_rotation_matrix(invquat)
+  invpos = -1*invR.dot(pos)
+
+  invpose = build_pose_dict(invpos, invquat)
+
+  return invpose
+
+
+def convert_quaternion_to_rotation_matrix(quat):
+  """ convert a quaternion to a rotation matrix
+
+  arguments:
+  ----------
+  quat : [4-array-like | dict ]
+         The quaternion numbers as a pose dict or a 4 array. In case of an array, it is assumed
+         to be 'scalar-first'
+
+  returns:
+  --------
+  rotmat : 3x3 array of floats
+           the rotation matrix belonging to the rotation as defined by the given quaternion
+  """
+  if isinstance(quat, dict):
+    w = quat['w']
+    x = quat['x']
+    y = quat['y']
+    z = quat['z']
+  else:
+    w, x, y, z = quat
+
+  r11 = 1 - 2*(y**2 + z**2)
+  r12 = 2*(x*y - w*z)
+  r13 = 2*(x*z + w*y)
+
+  r21 = 2*(x*y + w*z)
+  r22 = 1 - 2*(x**2 + z**2)
+  r23 = 2*(y*z - w*x)
+
+  r31 = 2*(x*z - w*y)
+  r32 = 2*(y*z + w*x)
+  r33 = 1 - 2*(x**2 + y**2)
+
+  rotmat = np.array([[r11, r12, r13],
+                     [r21, r22, r23],
+                     [r31, r32, r33]])
+
+  return rotmat
+
+
+def rotate_via_quaternion(points, quat):
+  """ rotate an array of points via a quaternion
+  """
+  points = np.asarray(points)
+  if points.ndim == 1:
+    points = points.reshape(3, 1)
+
+  if points.shape[0] != 3:
+    points = points.T
+
+  # convert quaternion to rotation matrix
+  rotmat = convert_quaternion_to_rotation_matrix(quat)
+
+  rpoints = rotmat@points
+
+  return rpoints
+
+
+def rotate_point_via_quaternion(point, quat, rtype='passive'):
+  """ rotate a point via a quaternion
+
+  'passive' type means the point is decribed in a different CS
+  'active' type means the point is rotated
+
+  they are each other's inverse
+  """
+  # make point to be a pseudo-quaternion
+  qpoint = np.asarray([0., *point])
+
+  print(qpoint)
+  if rtype == 'passive':
+    qpoint_rot = multiply_quaternions(quat, qpoint, invert_quaternion(quat))
+
+  elif rtype == 'active':
+    qpoint_rot = multiply_quaternions(invert_quaternion(quat), qpoint, quat)
+  else:
+    raise ValueError(f"The rtype must be either 'active' or 'passive'. '{rtype}' is not allowed")
+
+  return qpoint_rot[1:]
+
+
+def build_pose_dict(position, orientation):
+  """ build a pose dictionary
+
+  arguments:
+  ----------
+  position : 3-array-like of floats
+              the position in (x, y, z)
+  normal: 3-array of floats
+          The normal vector of the plane of the pose
+
+  returns:
+  --------
+  pose : dict
+          resulting pose dictionary. Keys 'position' and orientation'. sub-keys are:
+          - position: x, y and z
+          - orientation: w, x, y and z
+  """
+  posekeys = ['x', 'y', 'z']
+
+  pose_pos = dict(zip(posekeys, position))
+
+  if isinstance(orientation, dict):
+    qvec = np.array([orientation['w'], orientation['x'], orientation['y'], orientation['z']])
+  elif isinstance(orientation, (list, tuple, np.ndarray)):
+    if len(orientation) == 2:  # axis-angle
+      qvec = convert_axis_angle_to_quaternion(*orientation)
+    elif len(orientation) == 3:  # it is a normal to a plane
+      qvec = convert_normal_to_quaternion(orientation)
+    else:
+      qvec = np.asarray(orientation)
+  else:
+    raise TypeError(f"The type of the orientation argument ({type(orientation)}) is not known")
+
+  pose = {'position': pose_pos,
+          'orientation': quaternion_as_dict(qvec)}  # pylint: disable=E0606
+
+  return pose
+
+
+def dev_from_vector(vecs, refvec, angle_units='rad'):
+  """ calculate the angular deviation from a reference vector
+
+  """
+  # check 1: sort by verticalness
+  vecs = np.asarray(vecs)
+  if vecs.ndim == 1:
+    vecs = np.reshape(vecs, (1, -1))
+  else:
+    shp = vecs.shape
+    if shp[0] == 3:
+      if shp[1] != 3:
+        vecs = vecs.T
+
+  # transpose for correct dimensions
+  vvec = vecs.T
+  refvec = np.asarray(refvec).reshape(1, -1)
+  refvec_2d = refvec.reshape(1, -1)
+
+  dev_from_ref = np.arccos(refvec_2d.dot(vvec)).ravel()
+
+  if angle_units == 'deg':
+    dev_from_ref = np.rad2deg(dev_from_ref)
+
+  return dev_from_ref
+
+
+def dev_from_vertical(vecs, angle_units='rad'):
+  """ calculate the deviation from vertical for a certain vector
+  """
+  dvert_pos = dev_from_vector(vecs, [0., 0., 1.])
+  dvert_neg = dev_from_vector(vecs, [0., 0., -1.])
+
+  dvert = np.fmin(dvert_pos, dvert_neg)
+
+  if angle_units == 'deg':
+    dvert = np.rad2deg(dvert)
+
+  return dvert
+
+
+def dist_to_plane(points, planecoefs):
+  """ Calculate the distance from (a) point(s) to a plane
+
+  The plane coefficients are in the form ax + by + cz + d = 0; thus a 4-array-like
+
+  arguments:
+  ----------
+  points : array-like of floats
+           An array(-like) of point(s). At least 1 dimension must be 3 long. In case of a 3x3 array
+           the points are assumed to be stacked vertically..
+  planecoefs : 4-array-like of floats
+               The plane coefficients given as a 4-element array-like.
+
+  returns:
+  --------
+  dists : array-like of floats
+          The distance as a float
+  """
+  points = np.asarray(points)
+  if points.ndim == 1:
+    points.reshape(1, -1)
+  else:
+    shp = points.shape
+    if shp[0] == 3:
+      if shp[1] != 3:
+        # transpose if the coefficients are the vertical direction
+        points = points.T
+
+  # append 1. to the end (for the d-coefficient)
+  points_ext = np.hstack((points, np.ones((points.shape[0], 1), dtype=float)))
+
+  # make intok a 4x1 vector
+  planecoefs = np.asarray(planecoefs).reshape(4, 1)
+
+  dists = np.abs(points_ext@planecoefs).ravel()
+
+  return dists
+
+
+def colorvec(color):
+  """ create a color vector
+
+  """
+  if isinstance(color, str):
+    if len(color) == 1:
+      cvec = mcolors.BASE_COLORS[color]
+    else:
+      if color.startswith('tab:'):
+        chex = mcolors.TABLEAU_COLORS[color]
+      elif color.startswith('xkcd:'):
+        chex = mcolors.XKCD_COLORS[color]
+      else:
+        chex = mcolors.CSS4_COLORS[color]
+      cvec = np.array([int(chex[1:3], 16), int(chex[3:5], 16), int(chex[5:7], 16)])/255
+  else:
+    cvec = color
+
+  return np.asarray(cvec)
+
+
+def _set_file_or_dir(fodstr, not_exist_response, file_or_dir):
+  """ superfunction which is overloaded by setfile and setdir
+
+  options for 'not_exist_response' are:
+  - error/exception  (default)
+  - warning
+  - nothing/silence
+  """
+  if not os.path.exists(fodstr):
+    if not_exist_response.lower().startswith('ex'):
+      raise FileNotFoundError(f"The {file_or_dir} '{fodstr}' does not exist")
+    elif not_exist_response.lower().startswith('warn'):
+      warnings.warn(f"The {file_or_dir} '{fodstr}' does not exist")
+    elif not_exist_response.lower().startswith('nothing'):
+      pass  # do nothing
+
+  # add filesep if not present
+  if file_or_dir == 'directory':
+    if not fodstr.endswith(os.path.sep):
+      fodstr += os.path.sep
+
+  return fodstr
+
+
+def setdir(dirstr, not_exist_response='exception'):
+  """
+  overloaded function of _set_file_or_dir() for directories
+
+  options for 'not_exist_response' are:
+  - error/exception  (default)
+  - warning
+  - nothing/silence
+  """
+  return _set_file_or_dir(dirstr, not_exist_response, 'directory')
+
+
+def setfile(filestr, not_exist_response='exception'):
+  """
+  overloaded function of _set_file_or_dir() for directories
+
+  options for 'not_exist_response' are:
+  - error/exception  (default)
+  - warning
+  - nothing/silence
+  """
+  return _set_file_or_dir(filestr, not_exist_response, 'file')
+
+
+def get_background_separation_value(imint, nof_bins='doane'):
+  """estimate the value below which can be considered background. Uses the histogram
+
+  This function uses 'scale_for_objects' and 'numpy.histogram_bin_edges' functions
+
+  arguments:
+  ----------
+  imint : ndarray
+          2D intensity image for which the background must be estimated
+  nof_bins : [ float | str], default='doane'
+             The number of bins for the histogram to calculate. In case of a string, the list as
+             given by numpy.histogram_bin_edges() is valid
+
+  Returns:
+  --------
+  float: the value which separates the background optimally from the foreground
+  """
+  vsep, _ = scale_for_objects(imint, percentile=99., nof_bins=nof_bins)  # percentile is dont care
+
+  return vsep
+
+
+def scale_for_objects(imint, percentile, nof_bins='doane'):
+  """
+
+  """
+  binedges = np.histogram_bin_edges(imint, bins=nof_bins)
+  bincenters = binedges[:-1] + np.diff(binedges)/2
+  hcounts, _ = np.histogram(imint.ravel(), bins=binedges)
+  imax = np.argmax(hcounts)
+  idips = find_peaks(-hcounts)[0]  # note the minus sign!
+  iidip = np.argwhere(idips - imax > 0).item(0)
+  vmin = bincenters[idips[iidip]]
+  vmax = np.percentile(imint, percentile)  # intensity cut-off
+
+  return (vmin, vmax)
+
+
+def rgb2hsv(rgbs, makeplot=False, split=True):
+  """Convert an RGB image to a Hue, Saturation, Value (HSV) image
+
+  Args:
+      rgbs (3D ndarray): The 3D RGB image
+      makeplot (bool, optional): if True, some debugging plots are generated. Defaults to False.
+      split (bool, optional): if True, the h, s and v values are returned separately.
+                              Defaults to True.
+
+  Returns:
+      if 'split' is True:
+        (ndarray, ndarray, ndarray): the h, s, v values in separate arrays
+      else
+        (3D ndarray): the hsv image in a 3D ndarray
+  """
+
+  # check if range is correct
+  if rgbs.max() > 1.:
+    warnings.warn("The values are exceeding 1. Scaled back!", category=UserWarning)
+    rgbs /= rgbs.max()
+
+  # auxiliaries
+  rs = rgbs[..., 0]
+  gs = rgbs[..., 1]
+  bs = rgbs[..., 2]
+
+  cmaxs = np.max(rgbs, axis=-1)
+  cmins = np.min(rgbs, axis=-1)
+  deltas = cmaxs - cmins
+
+  # initialize to NaN
+  hues = np.nan*np.ones_like(cmaxs, dtype=float)
+  sats = np.nan*np.ones_like(cmaxs, dtype=float)
+  vals = np.nan*np.ones_like(cmaxs, dtype=float)
+
+  # HUE
+  hues[np.isclose(deltas, 0.)] = np.nan
+  tf_max_is_red = np.isclose(cmaxs - rs, 0.)
+  tf_max_is_green = np.isclose(cmaxs - gs, 0.)
+  tf_max_is_blue = np.isclose(cmaxs - bs, 0.)
+  hues[tf_max_is_red] = ((gs - bs)/deltas)[tf_max_is_red]
+  hues[tf_max_is_green] = ((bs - rs)/deltas)[tf_max_is_green] + 2
+  hues[tf_max_is_blue] = ((rs - gs)/deltas)[tf_max_is_blue] + 4
+  hues_in_deg = angled(np.exp(1j*np.deg2rad(hues*60)))
+  hues_in_deg[hues_in_deg < 0.] = hues_in_deg[hues_in_deg < 0.] + 360
+
+  hues = hues_in_deg/360
+
+  # brightness/value
+  vals = cmaxs.copy()
+
+  # saturation
+  sats = deltas/vals
+  sats[np.isclose(vals, 0.)] = 0.
+
+  if makeplot:
+    _, axs = plt.subplots(2, 2, num=figname("RGB to HSV"))
+    ax = axs[0, 0]
+    ax.imshow(rgbs)
+    ax.set_title("RGB")
+
+    ax = axs[0, 1]
+    ax.imshow(hues_in_deg)
+    ax.set_title("Hue")
+    ax = axs[1, 0]
+    ax.imshow(sats)
+    ax.set_title("Saturation")
+    ax = axs[1, 1]
+    ax.imshow(vals)
+    ax.set_title("Value/Brightness")
+    # add_colorbar()
+
+  if split:
+    return hues, sats, vals
+
+  return np.stack((hues, sats, vals), axis=-1)
+
+
+def hsv2rgb(hsvs, makeplot=False, split=False):
+  """Convert a HSV image to a RGB image
+
+  Args:
+      hsvs (3D ndarray): The 3D HSV image
+      makeplot (bool, optional): if True, some debugging plots are generated. Defaults to False.
+      split (bool, optional): if True, the r, g and b values are returned separately.
+                              Defaults to True.
+
+  Returns:
+      if 'split' is True:
+        (ndarray, ndarray, ndarray): the h, s, v values in separate arrays
+      else
+        (3D ndarray): the hsv image in a 3D ndarray
+  """
+
+  # corner case: values exceed 1
+  if hsvs.max() > 1.:
+    warnings.warn("The values are exceeding 1. Scaled back!", category=UserWarning)
+  # hsvs /= np.nanmax(hsvs)
+
+  # auxiliaries
+  hues = hsvs[..., 0]
+  sats = hsvs[..., 1]
+  vals = hsvs[..., 2]
+
+  hues *= 6  # make the hues vary from 0 to 6
+  chromas = sats*vals
+  Xs = chromas*(1. - np.abs((hues%2) - 1.))
+
+  rs1 = np.zeros_like(hues, dtype=float)
+  gs1 = np.zeros_like(hues, dtype=float)
+  bs1 = np.zeros_like(hues, dtype=float)
+
+  tf = hues <= 6.
+  rs1[tf] = chromas[tf]
+  gs1[tf] = 0.
+  bs1[tf] = Xs[tf]
+  tf = hues <= 5.
+  rs1[tf] = Xs[tf]
+  gs1[tf] = 0.
+  bs1[tf] = chromas[tf]
+  tf = hues <= 4.
+  rs1[tf] = 0.
+  gs1[tf] = Xs[tf]
+  bs1[tf] = chromas[tf]
+  tf = hues <= 3.
+  rs1[tf] = 0.
+  gs1[tf] = chromas[tf]
+  bs1[tf] = Xs[tf]
+  tf = hues <= 2.
+  rs1[tf] = Xs[tf]
+  gs1[tf] = chromas[tf]
+  bs1[tf] = 0.
+  tf = hues <= 1.
+  rs1[tf] = chromas[tf]
+  gs1[tf] = Xs[tf]
+  bs1[tf] = 0.
+
+  # match lightness
+  m = vals - chromas
+
+  # final result
+  rs = rs1 + m
+  gs = gs1 + m
+  bs = bs1 + m
+
+  if makeplot:
+    _, axs = plt.subplots(2, 2, num=figname("HSV to RGB"))
+    ax = axs[0, 0]
+
+    rgbs = np.stack((rs, gs, bs), axis=-1)
+    ax.imshow(rgbs)
+    ax.set_title("RGB")
+
+    ax = axs[0, 1]
+    ax.imshow(hues*360)
+    ax.set_title("Hue")
+    ax = axs[1, 0]
+    ax.imshow(sats)
+    ax.set_title("Saturation")
+    ax = axs[1, 1]
+    ax.imshow(vals)
+    ax.set_title("Value/Brightness")
+
+    plt.show(block=False)
+    plt.draw()
+    plt.pause(0.1)
+
+  if split:
+    return rs, gs, bs
+
+  return np.stack((rs, gs, bs), axis=-1)
+
+
+def brighten_rgb(rgbin, perc=99, makeplot=False, ax=None):
+  """
+  brighten an RGB image
+  """
+  hues, sats, vals = rgb2hsv(rgbin, makeplot=False, split=True)
+
+  # modify the lightness
+  satmax = np.percentile(sats, perc)
+  valmax = np.percentile(vals, perc)
+
+  satsc = sats/satmax
+  valsc = vals/valmax
+  satsc[satsc > 1.] = 1.
+  valsc[valsc > 1.] = 1.
+
+  hsvc = np.stack((hues, satsc, valsc), axis=-1)
+  rgbout = hsv2rgb(hsvc, makeplot=False, split=False)
+
+  if makeplot:
+    if ax is None:
+      _, ax = plt.subplots(1, 1, num=figname("brightened RGB image"))
+      ax.imshow(rgbout, aspect='equal')
+
+  return rgbout
+
+
 def check_sockets(iprange, port=5025, timeout=1., sufrange=np.r_[2:255]):
     """
     check all sockets in a certain IP range
@@ -134,7 +916,7 @@ def check_sockets(iprange, port=5025, timeout=1., sufrange=np.r_[2:255]):
                            a list containing the addresses with which connection could be
                            established
     """
-    # pylint: disable=import-outside-toplevel
+    # pylint: disable=import-outside-toplevel,import_error
     import pyvisa
     import socket
 
@@ -237,7 +1019,8 @@ def invert_dict(mydict):
   return invdict
 
 
-def plot_interval_patch(xdata, ydata, axis=0, stat='minmax', ax=None, **plotkwargs):
+def plot_interval_patch(xdata, ydata, axis=0, stat='minmax', ax=None, use_median=True,
+                        **plotkwargs):
   """
   plot an interval patch
   """
@@ -254,13 +1037,29 @@ def plot_interval_patch(xdata, ydata, axis=0, stat='minmax', ax=None, **plotkwar
     if len(stat) == nof_chars:
       factor = 1.
     else:
-      factor = float(stat[:-(nof_chars+1)])
+      facstr = stat[:-(nof_chars)]
+      if facstr.endswith('*'):
+        facstr = facstr[:-1]
 
-    meandata = np.mean(ydata, axis=axis)
+      factor = float(facstr)
+
+    if use_median:
+      meandata = np.median(ydata, axis=axis)
+    else:
+      meandata = np.mean(ydata, axis=axis)
     stddata = np.std(ydata, axis=axis)
 
     mindata = meandata - factor*stddata
     maxdata = meandata + factor*stddata
+  elif stat.endswith('percentile'):
+    nof_chars = len('percentile')
+    if len(stat) == nof_chars:
+      pct = 100.
+    else:
+      pct = float(stat[:-(nof_chars)])
+
+    mindata = np.percentile(ydata, 100 - pct, axis=axis)
+    maxdata = np.percentile(ydata, pct, axis=axis)
 
   else:
     raise ValueError(f"The 'stat' keyword argument value given ({stat}) is not valid!")
@@ -268,14 +1067,13 @@ def plot_interval_patch(xdata, ydata, axis=0, stat='minmax', ax=None, **plotkwar
   # find the upper and lower lines
   verts = [*zip(xdata, maxdata), *zip(xdata[-1::-1], mindata[-1::-1])]
   poly = Polygon(verts, **plotkwargs)
-  print(verts)
 
   if ax is None:
     ax = plt.gca()
     plt.show(block=False)
     plt.draw()
 
-  ax.add_artist(poly)
+  ax.add_patch(poly)
   plt.draw()
 
   return poly
@@ -313,7 +1111,7 @@ def angled(cvals, axis=-1, unwrap=False, icenter=None, wrap_range=(-180, 180)):
   icenter : [ int | None], default=None
             if not None, the index given on the axis given by 'axis' is set to 0 degrees. the rest
             is all relative to this index
-  
+
   Returns:
   --------
   angvals : [ array-like | float ]
@@ -620,6 +1418,8 @@ def dms2angle(dms):
     else:
       nof_elms = 1
       dms = [dms]
+  else:
+    raise TypeError(f"The type of 'dms' ('{type(dms)}') is not recognized")
 
   # loop all elements
   ang_list = []
@@ -850,7 +1650,8 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=Fal
                 'marker': None,
                 'markersize': 5,
                 'alpha': 1.}
-  clearup_dict.update(clearup_pars)
+  if clearup_pars is not None:
+    clearup_dict.update(clearup_pars)
 
   if np.isscalar(buffer_pix):
     buffer_pix = [buffer_pix]*2
@@ -878,7 +1679,15 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=Fal
   if isinstance(legdata[0], plt.Axes):
     legdata_list = []
     for legdata_ in legdata:
-      legdata_list += legdata_.get_lines()
+      kids = legdata_.get_children()
+      for kid in kids:
+        if isinstance(kid, (plt.Line2D, Polygon, Circle, Rectangle, Wedge, RegularPolygon,
+                            FancyArrow, CirclePolygon, Ellipse)):
+          if kid.axes is not None:
+            legdata_list.append(kid)
+        else:
+          pass  # do nothing, probably some kid that is part of the axes or ticks or whatever
+      # legdata_list += legdata_.get_lines()
     legdata = legdata_list
 
   if labels is None:
@@ -936,7 +1745,7 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=Fal
 
   # modify the legdata and markers
   if clearup:
-    for legobj in leg.legendHandles:
+    for legobj in leg.legend_handles:
       if clearup_dict['marker'] is not None:
         legobj.set_marker(clearup_dict['marker'])
         print("something is not fully correct yet. Please check this when applicable")
@@ -1360,15 +2169,18 @@ def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=Fals
                                            ("GIF files", ".gif"),
                                            ("all files", ".txt")])
   else:
-    ffilename = os.path.join(dirname, name + ext)
+    if name.endswith(ext):
+      ffilename = os.path.join(dirname, name)
+    else:
+      ffilename = os.path.join(dirname, name + ext)
 
   if not force:
     if os.path.exists(ffilename):
       if throw_exception:
         raise FileExistsError(f"The file '{ffilename}' already exists")
-      else:
-        print(f"File '{ffilename}' already exists. Not overwritten!")
-        return None
+
+      print(f"File '{ffilename}' already exists. Not overwritten!")
+      return None
 
   print(f"Saving figure '{ffilename}' .. ", end='')
 
@@ -1503,25 +2315,25 @@ def remove_empty_axes(fig):
   return None
 
 
-def inspector(obj2insp, searchfor=None, maxlen='auto'):
+def inspector(obj2insp, searchfor=None, maxlen=None, name=None):
   """
   inspect an object
   """
   if isinstance(obj2insp, dict):
-    inspect_dict(obj2insp, searchfor=searchfor, maxlen=maxlen)
+    inspect_dict(obj2insp, searchfor=searchfor, maxlen=maxlen, name=name)
   elif isinstance(obj2insp, list):
     if isinstance(obj2insp[0], dict):
       inspect_list_of_dicts(obj2insp, fields=searchfor, print_=True)
     else:
-      inspect_object(obj2insp, searchfor=searchfor, maxlen=maxlen)
+      inspect_object(obj2insp, searchfor=searchfor, maxlen=maxlen, name=name)
 
   else:
-    inspect_object(obj2insp, searchfor=searchfor, maxlen=maxlen)
+    inspect_object(obj2insp, searchfor=searchfor, maxlen=maxlen, name=name)
 
   return None
 
 
-def inspect_dict(dict_, searchfor=None, maxlen=None):
+def inspect_dict(dict_, searchfor=None, maxlen=None, name=None):
   """
   show all key value pairs in a dictionary
   """
@@ -1530,7 +2342,10 @@ def inspect_dict(dict_, searchfor=None, maxlen=None):
   if searchfor is not None:
     keys = [key for key in keys if key.find(searchfor) > -1]
 
-  markerline("=", text=" Dictionary inspector ")
+  linetext = " Dictionary inspector "
+  if name is not None:
+    linetext += f"- '{name}' "
+  markerline("=", text=linetext)
   list_to_print = [['NAME', 'TYPE(#)', 'VALUES/CONTENT']]
   for key in keys:
     value = dict_[key]
@@ -1573,7 +2388,7 @@ def inspect_dict(dict_, searchfor=None, maxlen=None):
 
 
 def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show_unders=False,
-                   show_dunders=False, maxlen='auto'):
+                   show_dunders=False, maxlen='auto', name=None):
   """
   show all class properties
   """
@@ -1592,7 +2407,10 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
   props = [attr for attr in attrs if not callable(getattr(obj, attr))]
   meths = [attr for attr in attrs if callable(getattr(obj, attr))]
 
-  markerline("=", text=" Object inspector ")
+  linetext = " Object inspector "
+  if name is not None:
+    linetext += f"- '{name}' "
+  markerline("=", text=linetext)
   print(f"\nClass: '{obj.__class__.__name__}' ")
   if obj.__doc__ is not None:
     print(f"Docstring: {obj.__doc__.strip()}")
@@ -1648,6 +2466,7 @@ def inspect_object(obj, searchfor=None, show_methods=True, show_props=True, show
       elif isinstance(prop, object):
         item_for_list = [propname, 'object', prop.__class__.__name__]
       else:
+        assert_never(item_for_list)
         raise TypeError(f"the property type ({type(prop)}) is not valid")
 
       list_to_print.append(item_for_list)
@@ -1826,7 +2645,7 @@ def interpret_sequence_string(seqstr, lsep=",", rsep=':', typefcn=float, check_i
     raise ValueError(f"The values in the sequence '{seqstr}' cannot be determined")
 
   # check if they are integers
-  if isinstance(typefcn, (np.floating, float)):
+  if typefcn in (np.floating, float):
     if check_if_int:
       is_int_seq = np.alltrue([elm.is_integer() for elm in seq_values])
       if is_int_seq:
@@ -1968,11 +2787,13 @@ def plot_grid(data, *args, ax=None, aspect='equal', center=False, tf_valid=None,
   for irow in range(nr):
     if tf_valid[irow, :].sum() > 0:
       # plot horizontal line
-      qplot(ax, xmeas[irow, tf_valid[irow, :]], ymeas[irow, tf_valid[irow, :]], *args, **kwargs_)
+      qplot(ax, xmeas[irow, tf_valid[irow, :]], ymeas[irow, tf_valid[irow, :]], *args,
+            plotnow=False, **kwargs_)
   for icol in range(nc):
     if tf_valid[:, icol].sum() > 0:
       # plot vertical line
-      qplot(ax, xmeas[tf_valid[:, icol], icol], ymeas[tf_valid[:, icol], icol], *args, **kwargs_)
+      qplot(ax, xmeas[tf_valid[:, icol], icol], ymeas[tf_valid[:, icol], icol], *args,
+            plotnow=False, **kwargs_)
 
   # set the aspect ratio
   ax.set_aspect(aspect)
@@ -2172,8 +2993,31 @@ def add_text_inset(text_inset_strs_list, x=None, y=None, loc='upper right', axfi
   return txtobj
 
 
-def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fill=False,
-             conf=0.67, remove_outliers=True, **kwargs):
+def cov_from_image(im2d, remove_outliers=False):
+  """ calculate the covariance from an image
+
+  """
+  # the value is the weight or frequency
+  aweights = im2d[np.nonzero(im2d)]
+  # convert to data --> not the transpose
+
+  data = np.argwhere(im2d).T
+
+  if remove_outliers:
+    tf_valid_i = ~find_outliers(data[0])[0]
+    tf_valid_q = ~find_outliers(data[1])[0]
+    tf_valid = tf_valid_i*tf_valid_q
+    data[0] = data[0][tf_valid]
+    data[1] = data[1][tf_valid]
+  cov = np.cov(data, aweights=aweights)
+
+  # determine the center if not given
+  center = tuplify(np.mean(data, axis=1))
+
+  return cov, center
+
+def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, geo='ellipse', nof_pts=101,
+             fill=False, conf=0.67, remove_outliers=True, **kwargs):
   """
   plot the covariance matrix
   sf = 5.99 corresponds to the 95% confidence interval
@@ -2215,22 +3059,43 @@ def plot_cov(data_or_cov, plotspec='k-', ax='new', center=None, nof_pts=101, fil
   eigvals, eigvecs = np.linalg.eig(cov)
 
   # create non-skewed ellipse
-  xy_unit_circle = np.array([np.cos(t), np.sin(t)])
-
   # make scale factor
   sf = np.interp(conf, confidence_table.index, confidence_table.values)
-  xy_straight_ellipse = np.sqrt(sf*eigvals).reshape(2, 1)*xy_unit_circle
-  xy_ellipse = eigvecs@xy_straight_ellipse  # noqa
-  xt_, yt_ = xy_ellipse
+  if geo.startswith('ellipse'):
+    xy_unit_circle = np.array([np.cos(t), np.sin(t)])
 
-  # add the center point
-  xt = xt_ + center[0]
-  yt = yt_ + center[1]
-  if fill:
-    ax.fill(xt, yt, plotspec, **kwargs)
+    xy_straight_ellipse = np.sqrt(sf*eigvals).reshape(2, 1)*xy_unit_circle
+    xy_ellipse = eigvecs@xy_straight_ellipse  # noqa
+    xt_, yt_ = xy_ellipse
 
-  else:
-    ax.plot(xt, yt, plotspec, **kwargs)
+    # add the center point
+    xt = xt_ + center[0]
+    yt = yt_ + center[1]
+    if fill:
+      ax.fill(xt, yt, plotspec, **kwargs)
+
+    else:
+      ax.plot(xt, yt, plotspec, **kwargs)
+  elif geo.startswith('rect'):
+    isort = np.argsort(eigvals)
+    evals_sort = eigvals[isort]
+    evecs_sort = eigvecs[:, isort]
+
+    lmaj = np.sqrt(sf*evals_sort[1])
+    lmin = np.sqrt(sf*evals_sort[0])
+
+    rotation_of_major_axis = np.arctan2(evecs_sort[1, 1], evecs_sort[0, 1])
+
+    # shift anchor by half the
+    xanch = center[0] - lmaj
+    yanch = center[1] - lmin
+    rect = Rectangle((xanch, yanch), lmaj*2, lmin*2,
+                      angle=np.rad2deg(rotation_of_major_axis),
+                      rotation_point='center',
+                      fc='none',
+                      ec='y',
+                      zorder=10)
+    ax.add_patch(rect)
 
   plt.show(block=False)
   plt.draw()
@@ -2328,7 +3193,7 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
 
   # if not compressed or compressible (after a warning)
   output_parts = []
-  
+
   # check if integer
   if check_for_ints:
     list2glue = [int(np.sign(elm)*0.5 + float(elm)) if np.abs(float(elm)).is_integer() else elm
@@ -2358,7 +3223,7 @@ def print_list(list2glue, sep=', ', pfx='', sfx='', floatfmt='{:f}', intfmt='{:d
   output_string += output_parts[-1] + sfx
 
   if maxlen is not None:
-    output_string = short_string(output_string, maxlen, **short_kws)
+    output_string = short_string(output_string, maxlength=maxlen, **short_kws)
 
   return output_string
 
@@ -2456,11 +3321,11 @@ def print_matrix(mat, pfx=None, ndigits=7, ndec=-1, force_sign=False, as_single=
     # logfloats_max = np.nanmax(logfloats)
     # get the power of 10 (is the number of digits before the .)
     ndigits_int_part = np.int_(np.ceil(logfloats_max))
-    
+
     # get the number of digits to be used for the sign (0 or 1)
     signstr = '+' if force_sign else ''
     ndigits_sign_in_data = 1 if np.nanmin(mat) < 0 else 0
-  
+
     ndigits_sign = np.fmax(ndigits_sign_in_data, force_sign)
 
     if ndec == -1:
@@ -3199,7 +4064,7 @@ def select_folder(**options):
   root = tk.Tk()
   root.withdraw()
 
-  dirname = tk.filedialog.askdirectory(**options)
+  dirname = filedialog.askdirectory(**options)
 
   root.quit()
   root.destroy()
@@ -4088,7 +4953,7 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   requested
   '''
 
-  def pressed_return():
+  def pressed_return(event=None):
     master.quit()
 
     return None
@@ -4159,7 +5024,7 @@ def inputdlg(strings, defaults=None, types=None, windowtitle='Input Dialog'):
   return returnval
 
 
-def rms(signal, axis=None):
+def rms(signal, axis=None, weights=None):
   '''
   Calculate the root-mean-squared value of a signal in time
 
@@ -4170,6 +5035,9 @@ def rms(signal, axis=None):
   axis : None or int, default=-1
          The axis along which the RMS value must be determined. In case *None* the RMS value will
          be determined for all elements in the array
+  weights : None or array-like of floats
+            if not None, this array gives the weights. Note that the mean weight should be equal to
+            1.0 to prevent scaling of the original data. Use with caution
 
   Returns:
   --------
@@ -4182,14 +5050,21 @@ def rms(signal, axis=None):
     signal = signal.reshape(-1)
     axis = -1
 
+  if weights is None:
+    weights = np.ones(signal.shape, dtype=float)
+
+  if not np.isclose(1., np.nanmean(weights)):
+    warnings.warn("The weights are not averaging to unity. Scaling applied!")
+    weights = weights/np.nanmean(weights)
+
   is_complex = np.any(np.iscomplex(signal))
 
   if is_complex:
-    i_rms = np.sqrt(np.nanmean(np.real(signal)**2, axis=axis))
-    q_rms = np.sqrt(np.nanmean(np.imag(signal)**2, axis=axis))
+    i_rms = np.sqrt(np.nanmean(np.real(signal*weights)**2, axis=axis))
+    q_rms = np.sqrt(np.nanmean(np.imag(signal*weights)**2, axis=axis))
     s_rms = i_rms + 1j * q_rms
   else:
-    s_rms = np.sqrt(np.nanmean(signal**2, axis=axis))
+    s_rms = np.sqrt(np.nanmean((weights*signal)**2, axis=axis))
 
   return s_rms
 
@@ -4393,7 +5268,7 @@ def round_to_int(floats, inttype='nearest', intloc='nearest'):
   Returns:
   --------
   ints : (array-like of) integers(s)
-  
+
   """
   isscal = np.isscalar(floats)
 
@@ -4920,6 +5795,27 @@ def paper_A_dimensions(index, units="m", orientation='landscape'):
   return w, h
 
 
+def get_nof_monitors(warning_thres=0.25):
+  """
+  get, or better, estimate the number of monitors attached.
+
+  Works only with an aspect ratio of about 1.78 (1920/1080)
+  """
+  default_ratio = 1920/1080
+
+  wpix, hpix = get_screen_dims(units='pix')
+  nof_monitors_est_fl = wpix/(default_ratio*hpix)
+  nof_monitors = int(0.5 + nof_monitors_est_fl)
+
+  # give warning in case uncertainty is too high
+  uncertainty = nof_monitors_est_fl%1
+  if warning_thres <= uncertainty <= (1. -warning_thres):
+    warnings.warn(f"Number of estimated monitors (={nof_monitors}) "
+                  + f"has high uncertainty (={uncertainty})")
+
+  return nof_monitors
+
+
 def get_max_a_size_for_display(orientation='landscape', nof_monitors='auto',
                                units='inches'):
   """
@@ -4963,14 +5859,16 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
              The standard deviation of the smoothing mask
   makeplot : bool, default=False
              If True creates a plot showing the raw data and the smoothed result
-  conv_mode : ['same', 'full', 'valid'], default='same'
-              The mode parameter for the np.convolve function. 'same' will result in an output
-              which is equal to the input number of samples
   downsample : bool, default=True
                Whether to downsample the smoothed data
   nof_pts_per_filt : ['auto' | int], default='auto'
                      If 'downsample' is true, these are the number of points per filter. 'auto'
                      will return a data equal to the standard deviation
+  return_indices : bool, default=False
+                   if True, the indices of the DOWNSAMPLED data set are returned
+  return_filt : bool, default=False
+                If True, the applied filter coefficients are returned. Usefull in case the filter
+                was automatically created based on the input data set
   edge : [ 'mirror' | 'sample' ], None or float, default='mirror'
          How to process the edges. Options are:
          - None     : nothing is done. The edges are appended with zeros
@@ -4984,9 +5882,9 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
          The interpolated and downsampled points such that the raw (high sample rate) and
          downsampled data graphs are overlaying. If no downsampling, this is the basis set of 0 to
          nof original samples
-  data_f : np.ndarray
+  data_f : (optional) np.ndarray
            The filtered and possibly downsampled data
-  filt : np.ndarray
+  filt : (optional) np.ndarray
          the actual filter used in smoothing
 
   Author:
@@ -4994,7 +5892,7 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
   Joris Kampman, Thales NL, 2023
   """
   if filtsize <= 1.:
-    filtsize = 2*(np.round(filtsize*data.size)//2) + 1
+    filtsize = 2*(np.round(filtsize*data.size)//2)
   else:
     if float(filtsize).is_integer():
       pass
@@ -5005,6 +5903,10 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
 
   # make it into a size of a filter (nof samples)
   nof_filt_samples = int(0.5 + filtsize)
+
+  if nof_filt_samples == 0:
+    warnings.warn("The filter is of zero length. Function returned")
+    return data
 
   if nof_filt_samples%2 == 0:
     warnings.warn(f"The number of filter samples ({nof_filt_samples}) is EVEN. Be carefull!")
@@ -5063,7 +5965,10 @@ def smooth_data(data, filtsize=0.07, std_filt=2.5, makeplot=False,
   if return_indices:
     output = (data_f, ipts)
   if return_filt:
-    output = (*output, filt)
+    if return_indices:
+      output = (data_f, ipts, filt)
+    else:
+      output = (data_f, filt)
 
   return output
 
@@ -5225,7 +6130,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
           mark_endpoints=False, endpoints_as_text=False, endpoint_color='k',
           split_complex_vals=True, colors='jetmodb', legend=True, legend_loc='upper right',
           legkwargs=None, figtitles=None, txt_rot='auto', margins=0.01, grid=None,
-          datetime_fmt='auto', return_lobjs=False, **plotkwargs):
+          datetime_fmt='auto', return_lobjs=False, plotfun='plot', plotnow=True, **plotkwargs):
   """
   a quicklook plot
 
@@ -5313,6 +6218,16 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   else:
     _, ax = plt.subplots(1, 1)
 
+  # ========= type of plot (plot, semilogx, semilogy)  ========================================
+  if plotfun == 'plot':
+    pfun = ax.plot
+  elif plotfun == 'semilogx':
+    pfun = ax.semilogx
+  elif plotfun == 'semilogy':
+    pfun = ax.semilogy
+  else:
+    raise ValueError("The value given for 'plotfun' (='{plotfun}') is not valid")
+
   # set the aspect ratio ('auto' and 'equal' are accepted)
   if aspect is not None:
     ax.set_aspect(aspect)
@@ -5373,7 +6288,8 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
     warnings.warn("The data set is empty!")
 
     label = kwargs.pop('label') if 'label' in kwargs else ''
-    lobj = ax.plot([], [], *format_str_list, label=label, **kwargs)[0]
+
+    lobj = pfun([], [], *format_str_list, label=label, **kwargs)[0]
     if return_lobjs:
       return ax, lobj
 
@@ -5446,8 +6362,10 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
       invert = True if 'i' in modifiers else False
       negative = True if 'n' in modifiers else False
       interpolation = 'nearest' if '_' in modifiers else 'linear'
-    colors = jetmod(nof_plots, 'vector', bright=bright, invert=invert, negative=negative,
-                    interpolation=interpolation)
+      colors = jetmod(nof_plots, 'vector', bright=bright, invert=invert, negative=negative,
+                      interpolation=interpolation)
+    else:
+      raise NotImplementedError("Other colormaps than 'jetmod' are not implemented yet")
 
   label_list = listify(kwargs.pop('label')) if 'label' in kwargs else ['']*nof_plots
   # change None to ''
@@ -5468,7 +6386,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   # check if it must be thin
   nof_points = np.array(ydata).size
   for xs, ys, label in zip(xdata, ydata, label_list):
-    lobj = ax.plot(arrayify(xs), arrayify(ys), *format_str_list, label=label, **kwargs)[0]
+    lobj = pfun(arrayify(xs), arrayify(ys), *format_str_list, label=label, **kwargs)[0]
     lobjs.append(lobj)
 
   if center:
@@ -5487,9 +6405,10 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
                 va='center', alpha=0.5, color=endpoint_color)
     else:
       for xs, ys in zip(xdata, ydata):
-        ax.plot(xs[0], ys[0], 's', mfc='none', markersize=10, markeredgewidth=2,
+
+        pfun(xs[0], ys[0], 's', mfc='none', markersize=10, markeredgewidth=2,
                 alpha=0.5, color=endpoint_color)
-        ax.plot(xs[-1], ys[-1], 'o', mfc='none', markersize=10, markeredgewidth=2,
+        pfun(xs[-1], ys[-1], 'o', mfc='none', markersize=10, markeredgewidth=2,
                 alpha=0.5, color=endpoint_color)
 
   is_label_present = np.all([len(label) > 0 for label in label_list])
@@ -5505,7 +6424,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
       legkwargs_base.update(loc=legend_loc)
     leg = ax.legend(**legkwargs_base)
 
-    for legobj in leg.legendHandles:
+    for legobj in leg.legend_handles:
       legobj.set_alpha(1)
       if thin > 0:
         # if marker is not existing
@@ -5543,11 +6462,12 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   # en-, or disable grid
   if grid is not None:
     ax.grid(grid)
+
+  if plotnow:
+    plt.show(block=False)
+    plt.pause(1e-4)
     plt.draw()
-  plt.show(block=False)
-  plt.pause(1e-4)
-  plt.draw()
-  plt.pause(1e-2)
+    plt.pause(1e-2)
 
   retval = ax
   if return_lobjs:
@@ -6222,7 +7142,7 @@ def modify_strings(strings, globs=None, specs=None):
   return modstrings
 
 
-def plot_matrix(matdata, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
+def plot_matrix(matdata, txtdata=None, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
                 clabels=None, rlabels=None, show_values=True,
                 fmt="{:0.2f}", clim='wide', ccenter=None, grid=True, fontsize=6,
                 fontweight='bold', nan_color='w', nan_alpha=1.,
@@ -6230,6 +7150,20 @@ def plot_matrix(matdata, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
   """
   create a matrix plot via matshow with some extras like show the values
   """
+  # check if int
+  is_int = isinstance(matdata[0, 0], (int, np.integer))
+
+  # change default fmt (only if not overwritten by something else!)
+  if is_int and fmt == "{:0.2f}":
+    fmt = "{:d}"
+
+  # get textdata from matdata
+  if txtdata is None:
+    txtdata = matdata.copy()
+
+  if alphas is None:
+    alphas = np.ones_like(matdata, dtype=float)
+
   # parameter dictionaries
   imkwargs_ = dict(interpolation='nearest', cmap=cmap, alpha=alphas, aspect=aspect)
   if imkwargs is not None:
@@ -6247,9 +7181,9 @@ def plot_matrix(matdata, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
     txtkwargs_.update(txtkwargs)
 
   gridkwargs_ = dict(color='k',
-                     lw=2,
-                     ls='-',
-                     alpha=0.8)
+                      lw=2,
+                      ls='-',
+                      alpha=0.8)
   if gridkwargs is not None:
     gridkwargs_.update(gridkwargs)
 
@@ -6264,7 +7198,7 @@ def plot_matrix(matdata, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
         ccenter = np.median(matdata)
       else:
         raise ValueError(f"the value given for 'ccenter' ('{ccenter}') is not valid!\n"
-                         + "Try 'mean' or 'median'")
+                          + "Try 'mean' or 'median'")
     if clim is None:
       raise ValueError("If a value for 'ccenter' is given, then 'clim' may not be None")
 
@@ -6298,18 +7232,26 @@ def plot_matrix(matdata, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
   f_cvals = get_cmap(cmap)
   # convert to scaled images (between 0 and 1)
   climdata = matdata.copy()
-  tf_isinf = np.isinf(climdata)
-  climdata[tf_isinf] = np.nan
+  if is_int:
+    matrgbas = f_cvals(climdata)
+    matrgbas[..., 3] = alphas
+  else:
+    tf_isinf = np.isinf(climdata)
+    climdata[tf_isinf] = np.nan
 
-  climdata -= np.nanmin(climdata)
-  climdata /= np.nanmax(climdata)
+    climdata -= np.nanmin(climdata)
+    climdata /= np.nanmax(climdata)
 
-  climdata = (matdata - clim[0])/(clim[1] - clim[0])
-  matrgbas = f_cvals(climdata)
+    climdata = (matdata - clim[0])/(clim[1] - clim[0])
+    matrgbas = f_cvals(climdata)
 
-  tf_isnan = np.isnan(climdata)
-  matrgbas[tf_isnan, :3] = nan_color
-  matrgbas[tf_isnan, 3] = nan_alpha
+    # add the alphas
+    matrgbas[..., 3] = alphas
+
+    tf_isnan = np.isnan(climdata)
+    matrgbas[tf_isnan, :3] = nan_color
+    matrgbas[tf_isnan, 3] = nan_alpha
+
   ax.imshow(matrgbas, **imkwargs_)
 
   # set the grid lines
@@ -6356,7 +7298,7 @@ def plot_matrix(matdata, ax=None, alphas=None, cmap='jetmodb', aspect='equal',
           color = [0.95, 0.95, 0.95]
         else:
           color = [0., 0., 0]
-        ax.text(icol, irow, fmt.format(matdata[irow, icol]), color=color, **txtkwargs_)
+        ax.text(icol, irow, fmt.format(txtdata[irow, icol]), color=color, **txtkwargs_)
 
   plt.show(block=False)
   plt.draw()
@@ -6607,15 +7549,13 @@ def markerline(marker, length=None, text=None, doprint=True, edge=None):
   return line
 
 
-def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True,
+def print_in_columns(strlist, maxlen=None, sep='', colwidths=None, print_=True,
                      shorten_last_col=False, hline_at_index=None, hline_marker='-',
                      what2keep='end'):
   """
   print a list of strings as a row with n columns
   """
   if maxlen is None:
-    maxlen = 100000000
-  elif maxlen == 'auto':
     maxlen = os.get_terminal_size().columns
 
   # check the column widths if they are given
@@ -6674,8 +7614,9 @@ def print_in_columns(strlist, maxlen='auto', sep='', colwidths=None, print_=True
   if print_:
     for line in lines:
       print(line)
-
-  return lines
+    return None
+  else:
+    return lines
 
 
 def pixels_under_line(abcvec, xvec, yvec, mode='ax+by=c', upscale_factor=4):
@@ -6944,9 +7885,9 @@ def distance_point_to_line(xpt, ypt, line, linefmt='ax+by=c'):
 def distance_point_to_line_segment_INCORRECT(pt, pline1, pline2):
   """
   calculate the distance between a line SEGMENT and a point
-  
+
   for the distance between a point and a INFINITE line given by ax+b, see 'distance_point_to_line'
-  
+
   arguments:
   ----------
   pt : 2-array-like of floats
@@ -6955,7 +7896,7 @@ def distance_point_to_line_segment_INCORRECT(pt, pline1, pline2):
            The first end-point of the line segment in (x, y) coordinates
   pline2 : 2-array-like of floats
            The second end-point of the line segment in (x, y) coordinates
-  
+
   returns:
   --------
   retval : [ float | bool]
@@ -7044,7 +7985,7 @@ def is_point_on_line(lp1, lp2, pt, infinite_line=True):
 
 
 def intersections_line_and_circle(circ, p1, p2, is_segment=False, makeplot=False):
-  """ 
+  """
   Find the intersection points (0, 1 or 2) of a line and an circle
   """
   # unpack the circle definition (x, y and radius)
