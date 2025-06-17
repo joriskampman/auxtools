@@ -10,7 +10,7 @@ or other thales-based links
 # pylint: disable=wrong-import-order
 # pylint: disable=useless-return
 # basics
-from typing import assert_never
+# from typing import assert_never
 import os
 import numpy as np
 import matplotlib.pyplot as plt
