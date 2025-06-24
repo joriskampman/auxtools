@@ -1762,7 +1762,7 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=Fal
 
   # modify the legdata and markers
   if clearup:
-    for legobj in leg.legend_handles:
+    for legobj in leg.legendHandles:
       if clearup_dict['marker'] is not None:
         legobj.set_marker(clearup_dict['marker'])
         print("something is not fully correct yet. Please check this when applicable")
@@ -6448,7 +6448,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
       legkwargs_base.update(loc=legend_loc)
     leg = ax.legend(**legkwargs_base)
 
-    for legobj in leg.legend_handles:
+    for legobj in leg.legendHandles:
       legobj.set_alpha(1)
       if thin > 0:
         # if marker is not existing
