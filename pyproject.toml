@@ -1,6 +1,6 @@
-[build-sytstem]
-requires = ["setuptools"]
-build-backend = "setuptools.build-meta"
+# [build-sytstem]
+# requires = ["setuptools"]
+# build-backend = "setuptools.build-meta"
 
 [project]
 name = "auxtools"
@@ -11,6 +11,25 @@ authors = [
 	{name = "Joris Kampman", email="joriskampman@proton.me"}
 ]
 license = "MIT"
+dependencies = [
+	"numpy",
+	"matplotlib",
+	"pandas",
+	"tkinter",
+	"time",
+	"re",
+	"datetime",
+	"copy",
+	"numexpr",
+	"glob",
+	"inspect",
+	"itertools",
+	"scipy",
+	"skimage",
+	"os",
+	"sys",
+	"pdb",
+]
 
 [project.urls]
 repository = "https://github.com/joriskampman/auxtools"
