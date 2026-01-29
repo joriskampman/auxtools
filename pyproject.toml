@@ -1,0 +1,12 @@
+[project]
+name = "auxtools"
+version = "1.0.0"
+description = "auxiliary tools package"
+readme = "README.md"
+authors = [
+	{name = "Joris Kampman", email="joriskampman@proton.me"}
+]
+license = {text = "MIT"}
+
+[project.urls]
+repository = "https://github.com/joriskampman/auxtools"
