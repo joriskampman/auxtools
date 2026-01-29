@@ -15,20 +15,9 @@ dependencies = [
 	"numpy",
 	"matplotlib",
 	"pandas",
-	"tkinter",
-	"time",
-	"re",
-	"datetime",
-	"copy",
 	"numexpr",
-	"glob",
-	"inspect",
-	"itertools",
 	"scipy",
-	"skimage",
-	"os",
-	"sys",
-	"pdb",
+	"scikit-image",
 ]
 
 [project.urls]
