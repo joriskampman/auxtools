@@ -1,3 +1,7 @@
+[build-sytstem]
+requires = ["setuptools"]
+build-backend = "setuptools.build-meta"
+
 [project]
 name = "auxtools"
 version = "1.0.0"
@@ -6,7 +10,12 @@ readme = "README.md"
 authors = [
 	{name = "Joris Kampman", email="joriskampman@proton.me"}
 ]
-license = {text = "MIT"}
+license = "MIT"
 
 [project.urls]
 repository = "https://github.com/joriskampman/auxtools"
+
+# explicitly list the python modules in the root
+[tool.setuptools]
+py-modules = ["coordinate_transforms", "cmaps"]
+
