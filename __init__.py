@@ -28,6 +28,7 @@ import numexpr as ne
 import glob
 import inspect
 from itertools import cycle
+from functools import partial
 
 # sub-modules for scipyt
 from scipy.interpolate import interp1d
@@ -37,6 +38,7 @@ from scipy.fftpack import fftshift
 from scipy.signal import find_peaks, convolve2d
 
 # matplotlib sub-modules
+from matplotlib import colormaps as cm
 from matplotlib.legend import Legend
 from matplotlib.colors import to_rgb, to_rgba
 import matplotlib.colors as mcolors
@@ -8176,4 +8178,34 @@ def set_autolimit_mode():
 # =============== CODE TO RUN ==================================
 set_warnings_format()
 
+print("\nregistering colormaps:")
+cmaps_list = [('jetmodb', partial(jetmod, bright=True)),
+              ('jetmod', jetmod),
+              ('jetgray', jetgray),
+              ('jetext', jetext),
+              ('traffic_light', traffic_light),
+              ('bgr', bgr),
+              ('truefalse', truefalse,)]
+invkwargs_dict = {'': dict(),
+                  'i': dict(invert=True)}
+negkwargs_dict = {'': dict(),
+                  'n': dict(negative=True)}
+intpkwargs_dict = {'': dict(),
+                   '_': dict(interpolation='nearest')}
+
+for namebase, fcmap in cmaps_list:
+  print(" - {}:".format(namebase))
+  for ikey, ikwargs in invkwargs_dict.items():
+    for nkey, nkwargs in negkwargs_dict.items():
+      for intpkey, intpkwargs in intpkwargs_dict.items():
+        name = namebase + ikey + nkey + intpkey
+        # print("   - {}".format(name))
+        cm.register(name=name, cmap=fcmap(**ikwargs, **nkwargs, **intpkwargs))
+
+print("\nNote that all of the above colormaps can be suffixed:")
+print("  i: invert colors")
+print("  n: negate colors")
+print("  _: no linear interpolation; nearest neighbour interpolation\n")
+
 set_autolimit_mode()
+
