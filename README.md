@@ -8,6 +8,11 @@ This module can be expanded by anyone with smal, tools, wrappers or functions at
 
 These auxtools module is stored in [github](https://github.com/joriskampman/auxtools.git) and are a personal repository, however to be used without any type of warranty by anyone who feels like it.
 
+## revisions
+
+1.0.1 - included registering custom colormaps, such as 'jetext', 'bgr' ...
+1.0.0 - first commit via uv
+
 ## 2. contents
 
 The repository contains many functions which all should contain the docstring allowing the user to find out the syntax and purpose of all.
