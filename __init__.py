@@ -6412,7 +6412,11 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   # check if it must be thin
   nof_points = np.array(ydata).size
   for xs, ys, label in zip(xdata, ydata, label_list):
-    lobj = pfun(arrayify(xs), arrayify(ys), *format_str_list, label=label, **kwargs)[0]
+    xsa = arrayify(xs)
+    ysa = arrayify(ys)
+    if xsa.size == 1:
+      xsa = np.repeat(xsa, ysa.size)
+    lobj = pfun(xsa, ysa, *format_str_list, label=label, **kwargs)[0]
     lobjs.append(lobj)
 
   if center:
