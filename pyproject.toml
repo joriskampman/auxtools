@@ -26,4 +26,4 @@ repository = "https://github.com/joriskampman/auxtools"
 # explicitly list the python modules in the root
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["auxtools"]
+include = ["auxtools*"]

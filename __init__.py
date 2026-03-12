@@ -57,6 +57,10 @@ import sys # noqa
 
 # import all subfunctions
 from .cmaps import * # noqa
+from .coordinate_transforms import *
+
+__all__ = ["coordinate_transforms", "cmaps"]
+
 
 # constants
 LIGHTSPEED_RADAR = 299706720.0
