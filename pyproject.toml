@@ -24,6 +24,6 @@ dependencies = [
 repository = "https://github.com/joriskampman/auxtools"
 
 # explicitly list the python modules in the root
-[tool.setuptools]
-py-modules = ["coordinate_transforms", "cmaps"]
-
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["auxtools"]
