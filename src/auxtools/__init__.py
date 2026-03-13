@@ -59,6 +59,8 @@ import sys # noqa
 from .cmaps import * # noqa
 from .coordinate_transforms import *
 
+from PyQt5.QtWidgets import QApplication
+
 __all__ = ["coordinate_transforms", "cmaps"]
 
 
@@ -119,6 +121,97 @@ class NotInvertibleDictError(Exception):
 
 class DimensionError(Exception):
   """ and exception for when some reshaping cannot work due to incorrect dimensions """
+
+
+# FUNCTIONS
+def get_position_in_pixels(xpos, ypos, width, height, monitor=-1):
+  """
+  place a figure or any object
+  """
+  screens = app.screens()
+  target_screen = screens[monitor]
+  geo = target_screen.geometry()
+  screen_width = geo.width()
+  screen_height = geo.height()
+  screen_x_offset = geo.x()
+  screen_y_offset = geo.y()
+
+  # determine the width
+  if width < 1.:
+
+    width_pix = width*screen_width
+    height_pix = height*screen_height
+  elif np.isclose(width, 1.):
+    width_pix = screen_width
+    height_pix = screen_height
+  else:
+    width_pix = width
+    height_pix = height
+
+  # calculate left and top offset_object
+  if isinstance(xpos, str):
+    if xpos == 'center':
+      x_offset_pix = (screen_width - width_pix)//2
+    elif xpos == 'left':
+      x_offset_pix = 0
+    elif xpos == 'right':
+      x_offset_pix = screen_width - width_pix
+    elif xpos == 'auto':
+      x_offset_pix = 50
+    else:
+      raise ValueError(f"The given string value for 'xpos' (={xpos}) is not valid")
+  else:
+    if xpos < 1.0:  # fraction of screen
+      x_offset_pix = int(0.5 + xpos*screen_width)
+    else:
+      x_offset_pix = int(0.5 + xpos)
+
+  if isinstance(ypos, str):
+    if ypos == 'top':
+      y_offset_pix = 0
+    elif ypos == 'center':
+      y_offset_pix = (screen_height - height_pix)//2
+    elif ypos == 'bottom':
+      y_offset_pix = screen_height - height_pix
+    elif ypos == 'auto':
+      y_offset_pix = 50
+    else:
+      raise ValueError(f"The given string value for 'ypos' (={ypos}) is not valid")
+  else:
+    if ypos < 1.0:
+      y_offset_pix = int(0.5 + ypos*screen_height)
+    else:
+      y_offset_pix = int(0.5 + ypos)
+
+  return (int(0.5 + width_pix), int(0.5 + height_pix), int(0.5 + x_offset_pix + screen_x_offset),
+          int(0.5 + y_offset_pix + screen_y_offset))
+
+
+def position_figure(fig=None, xpos='center', ypos='center', width=0.5, height=0.5, monitor=-1):
+  """figure position
+  """
+  if fig is None:
+    fig = plt.gcf()
+
+  # calculate the position in pixels
+  wfig, hfig, xfig, yfig = get_position_in_pixels(xpos, ypos, width, height, monitor=monitor)
+
+  print(wfig, hfig, xfig, yfig)
+  mngr = fig.canvas.manager # type: ignore
+
+  # # get the toolbarheight
+  # toolbar = mngr.window.findChildren(QToolBar)[-1]  # there is expected to be only 1
+  # tb_height = toolbar.size().height()
+  # hfig -= tb_height
+  # yfig += max(0, tb_height)
+
+  mngr.toolbar.hide()
+  mngr.window.move(xfig, yfig)
+  mngr.window.resize(wfig, hfig)
+
+  plt.show(block=False)
+  plt.draw()
+  plt.pause(1e-2)
 
 
 def multiply_quaternions(*quats):
@@ -8184,6 +8277,8 @@ def set_autolimit_mode():
   return None
 
 # =============== CODE TO RUN ==================================
+app = QApplication([])
+
 set_warnings_format()
 
 print("\nregistering colormaps:")
