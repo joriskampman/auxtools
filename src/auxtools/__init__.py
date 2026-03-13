@@ -59,7 +59,8 @@ import sys # noqa
 from .cmaps import * # noqa
 from .coordinate_transforms import *
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMainWindow, QToolBar
+app = QApplication([])
 
 __all__ = ["coordinate_transforms", "cmaps"]
 
@@ -124,6 +125,13 @@ class DimensionError(Exception):
 
 
 # FUNCTIONS
+def test():
+  """ test function, will be removed later
+  """
+  print("this is a test")
+  return None
+
+
 def get_position_in_pixels(xpos, ypos, width, height, monitor=-1):
   """
   place a figure or any object
@@ -212,6 +220,8 @@ def position_figure(fig=None, xpos='center', ypos='center', width=0.5, height=0.
   plt.show(block=False)
   plt.draw()
   plt.pause(1e-2)
+
+  return fig
 
 
 def multiply_quaternions(*quats):
@@ -8277,7 +8287,6 @@ def set_autolimit_mode():
   return None
 
 # =============== CODE TO RUN ==================================
-app = QApplication([])
 
 set_warnings_format()
 
