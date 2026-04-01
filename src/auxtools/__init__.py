@@ -6425,6 +6425,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
     lobj = pfun([], [], *format_str_list, label=label, **kwargs)[0]
     if return_lobjs:
       return ax, lobj
+    return ax
 
   if np.isscalar(ydata):
     ydata = [ydata]
