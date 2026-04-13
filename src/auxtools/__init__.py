@@ -3145,6 +3145,7 @@ def cov_from_image(im2d, remove_outliers=False):
 
   return cov, center
 
+
 def plot_cov(data_or_cov, plotspec='k-', ax=None, center=None, geo='ellipse', nof_pts=101,
              fill=False, conf=0.67, remove_outliers=True, **kwargs):
   """
@@ -5516,6 +5517,19 @@ def figname(figname_base):
 
 def add_figname(figname_base, fig=None):
   """
+  add a figure name (label) to a figure
+
+  arguments:
+  ----------
+  figname_base [str]
+               the name to give to the figure. It is a base because a number may be
+               appended
+  fig [handle], default=None
+      The figure handle for which the name/label must be set/changed
+
+  returns:
+  --------
+  fig [handle] The figure handle
   """
   if fig is None:
     fig = plt.gcf()
@@ -5526,7 +5540,6 @@ def add_figname(figname_base, fig=None):
   fig.set_label(figlab)
 
   return fig
-
 
 
 def figname_OBSOLETE(figname_base):
