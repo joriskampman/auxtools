@@ -2016,7 +2016,8 @@ def get_screen_dims(units='inches'):
 
 
 def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', dy_inch='auto',
-                  tighten=True, shortest_dim_mm=100., pos=(50, 50)):
+                  tighten=True, shortest_dim_mm=100., pos=('center', 'center'),
+                  monitor=-1):
   '''
   resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
   the display on the screen.None
@@ -2048,10 +2049,13 @@ def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', d
 
   mng = plt.get_current_fig_manager()
 
+  _, _, width, height = mng.window.geometry().getRect()
+  wfig, hfig, xfig, yfig = get_position_in_pixels(pos[0], pos[1], width, height, monitor=monitor)
+
+
   # move figure to top-left
-  if pos is not None:
-    _, _, width, height = mng.window.geometry().getRect()
-    mng.window.setGeometry(*pos, width, height)
+  # if pos is not None:
+  mng.window.setGeometry(xfig, yfig, wfig, hfig)
 
   shortest_dim_inch = shortest_dim_mm/25.4
 
@@ -2270,7 +2274,7 @@ def savefig(fig=None, ask=False, name=None, dirname=None, ext=".png", force=Fals
 
   # ----------- get the name and tidy up --------------
   if name is None:
-    name = fig.get_label()
+    name = fig.canvas.manager.get_window_title()
     # remove [x] part
     istop = name.find("[")
     if istop > 0:
@@ -5485,6 +5489,47 @@ def round_to_values(data, rnd2info):
 
 
 def figname(figname_base):
+  """
+  sets the figure name and label
+
+  """
+  figname_new = figname_base
+  counter = 1
+  finished = False
+  while not finished:  # stop
+
+    finished = True
+    # loop all open figures
+    for fnum in plt.get_fignums():
+
+      # check the title it it exists
+      title_ = plt.figure(fnum).canvas.manager.get_window_title()
+      if figname_new == title_:
+        figname_new = figname_base + f"[{counter}]"
+        counter += 1
+
+        finished = False
+
+  # add the new figname
+  return figname_new
+
+
+def add_figname(figname_base, fig=None):
+  """
+  """
+  if fig is None:
+    fig = plt.gcf()
+
+  figlab = figname(figname_base)
+
+  fig.canvas.manager.set_window_title(figlab)
+  fig.set_label(figlab)
+
+  return fig
+
+
+
+def figname_OBSOLETE(figname_base):
   '''
   *figname* is a function which checks if a figure having the candidate name exists, and if it
   does exists, modifies it by adding a number to the name withing straight brackets ([ and ]).and
