@@ -31,6 +31,7 @@ from itertools import cycle
 from functools import partial
 
 # sub-modules for scipyt
+import scipy.linalg as spl
 from scipy.interpolate import interp1d
 from scipy.special import factorial
 import scipy.signal.windows as spsw
@@ -125,11 +126,191 @@ class DimensionError(Exception):
 
 
 # FUNCTIONS
-def test():
-  """ test function, will be removed later
+def rotation_matrix_from_axis_and_angle(rotvec, theta):
+  """ generate a rotation matrix from an axis and an angle
+
   """
-  print("this is a test")
-  return None
+  rotvec = np.asarray(rotvec)
+  rotvec /= np.linalg.norm(rotvec)
+
+  vx, vy, vz = rotvec.ravel()
+  vxmat = np.array([[0, -vz, vy],
+                    [vz, 0, -vx],
+                    [-vy, vx, 0]])
+
+  # build the output verm
+  term1 = np.eye(3)
+  term2 = np.sin(theta)*vxmat
+  term3 = (1.0 - np.cos(theta))*np.dot(vxmat, vxmat)
+
+  rotmat = term1 + term2 + term3
+
+  return rotmat
+
+
+def rotate_points_via_rodrigues(points, rotvec, theta):
+  """
+  rotate a vector using rodrigues' formula
+
+  arguments:
+  ----------
+  points : array-like of floats
+            agnostic against orientation of points vs xyz dimensions (i.e., Nx3 or 3xN are both OK).
+            However, in case 3x3, the x, y and z of the 3 points are in the columns!
+  rotvec : 3-array-like of floats
+          rotation vector around which the points are rotated.
+          Will be normalized in this function
+  theta : float
+          The angle in RADIANS with which the points must be rotated around the rotvec
+
+  returns:
+  --------
+  rpoints : Nx3 ndarray of floats
+            The rotated point cloud
+  """
+  # make all into an array
+  points = np.asarray(points)
+  rotvec = np.asarray(rotvec)
+
+  # dimension checking of the points
+  nof_3 = (np.asarray(points.shape) == 3).sum()
+  if nof_3 == 0:
+    raise ValueError(f"The data for 'points' has the incompatible shape of '{points.shape}'!")
+
+  if nof_3 == 2:
+    warnings.warn("The points have shape 3x3. The points are taken to be stacked horizontally")
+  else:
+    # all is well
+    i3 = np.argwhere(np.asarray(points.shape) == 3).item()
+    if i3 == 1:
+      points = points.T
+
+  rotmat = rotation_matrix_from_axis_and_angle(rotvec, theta)
+
+  # rotate the points
+  rpoints = rotmat@points
+
+  # match the input
+  if i3 == 1:
+    rpoints = rpoints.T
+
+  return rpoints
+
+
+def project_points_to_plane(points, normal):
+  """
+  rotate points in a plane via the normal to align with the horizontal plane
+  """
+  points = np.asarray(points)
+  normal = np.asarray(normal)
+  normal /= np.linalg.norm(normal)
+
+  zax = np.asarray([0.0, 0.0, 1.0])
+
+  # calculate rotvec and theta
+  rotvec = np.cross(normal, zax)
+  theta = np.arccos(np.dot(normal, zax))
+  if np.linalg.norm(rotvec) < np.spacing(1.)*10:
+    rpoints = points
+  else:
+    rpoints = rotate_points_via_rodrigues(points, rotvec, theta)
+
+  return rpoints
+
+
+
+# ============================ functions ===================================================
+def plane_from_normal_and_point(normal, point) -> np.ndarray:
+  """ calculate the plane coefficients from a normal and a point
+  """
+  normal_a = np.asarray(normal).ravel()
+  point_a = np.asarray(point).ravel()
+
+  d_a = normal_a @ point_a
+
+  return np.append(normal_a, d_a)
+
+
+def line_coefs_from_point_slope(point, slope, viewing_normal):
+  """ convert the line coefficients to a point/slope defintion
+  """
+  slope = np.asarray(slope).astype(float).ravel()
+  point = np.asarray(point).astype(float).ravel()
+  viewing_normal = np.asarray(viewing_normal).astype(float).ravel()
+
+  # take the viewing_normal as the point along which the line is viewed
+  pproj, sproj = project_points_to_plane([point, slope], viewing_normal)
+  # take dimension into account
+  a_line = -sproj[1]
+  b_line = sproj[0]
+  c_line = a_line*pproj[0] + b_line*pproj[1]
+
+  return (a_line, b_line, c_line)
+
+
+def find_intersection_of_planes(plane1, plane2) -> tuple:
+  """ find intersection of 2 planes
+
+  Return:
+  -------
+  (a, b, c) equation of the line according to ax+by=c
+  """
+  # preproc: make into arrays
+  plane1 = np.asarray(plane1)
+  plane2 = np.asarray(plane2)
+
+  # step 1: find cross products of normals
+  n1 = np.asarray((plane1[:3]))
+  n2 = np.asarray((plane2[:3]))
+  slope = np.cross(n1, n2)
+
+  # punder this axis to 0 and substitundere
+  Amat = np.vstack((n1, n2))
+  bvec = np.asarray((plane1[-1], plane2[-1])).reshape(-1, 1)
+
+  p0 = (spl.pinv(Amat)@bvec).ravel()
+
+  return (p0, slope)
+
+
+def check_side_of_points_wrt_line(points, lcoefs, tol=1e-10) -> np.ndarray:
+  """ check on which side of the line the points are/is
+
+  f(x,y) = ax + by - c
+
+  if f = 0 it is on the line
+  if f < 0 it is on a side
+  if f > 1 it is on the other side
+
+  note that which side it is is not certain.
+  """
+  points = np.asarray(points)
+  tol = float(tol)
+
+  lcoefs = np.asarray(lcoefs)
+
+  xy_coefs = lcoefs[:2].reshape(2, 1)
+  line_constant = lcoefs[2]
+
+  normvac = np.linalg.norm(xy_coefs, 2)
+
+  # make 1D into 2D
+  if points.ndim == 1:
+    points = points.reshape(-1, 2)
+
+  # make 2xN to Nx2
+  if points.shape[1] != 2:
+    points = points.T
+
+  # matrix multiplication
+  ftests = (points @ xy_coefs - line_constant).ravel()/normvac
+
+  result = np.empty_like(ftests, dtype=int)
+  result[ftests < -tol] = -1 # type: ignore
+  result[(ftests >= -tol)*(ftests <= tol)] = 0 # type: ignore
+  result[ftests > tol] = 1 # type: ignore
+
+  return result
 
 
 def get_position_in_pixels(xpos, ypos, width, height, monitor=-1):

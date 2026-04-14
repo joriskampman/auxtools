@@ -300,7 +300,7 @@ def _gen_cmap_output(marker_array, nof_steps, istep, invert=False, negative=Fals
 
 
 def jetmod(nof_steps=256, istep=None, bright=False, invert=False, negative=False,
-           interpolation='linear'):
+           interpolation='linear') -> np.ndarray | LinearSegmentedColormap:
   '''
   Modified 'jet' colormap. Yellow is removed for types like Geert Onstenk ...
 
