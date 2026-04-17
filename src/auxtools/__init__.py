@@ -55,6 +55,7 @@ import matplotlib.dates as mdates
 from skimage.color import rgb2gray
 import pdb  # noqa
 import sys # noqa
+from screeninfo import get_monitors
 
 # import all subfunctions
 from .cmaps import * # noqa
@@ -218,7 +219,6 @@ def project_points_to_plane(points, normal):
   return rpoints
 
 
-
 # ============================ functions ===================================================
 def plane_from_normal_and_point(normal, point) -> np.ndarray:
   """ calculate the plane coefficients from a normal and a point
@@ -318,13 +318,14 @@ def get_position_in_pixels(xpos, ypos, width, height, monitor=-1):
   """
   place a figure or any object
   """
-  screens = app.screens()
+  screens = get_monitors()
+  # screens = app.screens()
   target_screen = screens[monitor]
-  geo = target_screen.geometry()
-  screen_width = geo.width()
-  screen_height = geo.height()
-  screen_x_offset = geo.x()
-  screen_y_offset = geo.y()
+  # geo = target_screen.geometry()
+  screen_width = target_screen.width
+  screen_height = target_screen.height
+  screen_x_offset = target_screen.x
+  screen_y_offset = target_screen.y
 
   # determine the width
   if width < 1.:
@@ -2164,16 +2165,13 @@ def add_figtitles(texts, fig=None, xpos_rel=0.5, ypos_rel=1., fontsize_top=12, f
   return output_list
 
 
-def get_screen_dims(units='inches'):
+def get_screen_dims(units='inches', monitor=-1):
   """
   get the dimensions of the screen
   """
-  root = tk.Tk()
-  w_pix = root.winfo_screenwidth()
-  h_pix = root.winfo_screenheight()
-
-  # destroy the Tcl
-  root.destroy()
+  screen = get_monitors()[monitor]
+  w_pix = screen.width
+  h_pix = screen.height
 
   # output units switching
   if units.startswith('inch'):
@@ -2248,7 +2246,7 @@ def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', d
     dy_inch = hinch - top_inch
 
   # if; maximize
-  wmax, hmax = get_max_a_size_for_display(units='inches', orientation=orientation)
+  wmax, hmax = get_max_a_size_for_display(units='inches', orientation=orientation, monitor=monitor)
   width = 1.1*shortest_dim_inch
   height = shortest_dim_inch
   if isinstance(size, str):
@@ -6166,39 +6164,13 @@ def paper_A_dimensions(index, units="m", orientation='landscape'):
   return w, h
 
 
-def get_nof_monitors(warning_thres=0.25):
-  """
-  get, or better, estimate the number of monitors attached.
-
-  Works only with an aspect ratio of about 1.78 (1920/1080)
-  """
-  default_ratio = 1920/1080
-
-  wpix, hpix = get_screen_dims(units='pix')
-  nof_monitors_est_fl = wpix/(default_ratio*hpix)
-  nof_monitors = int(0.5 + nof_monitors_est_fl)
-
-  # give warning in case uncertainty is too high
-  uncertainty = nof_monitors_est_fl%1
-  if warning_thres <= uncertainty <= (1. -warning_thres):
-    warnings.warn(f"Number of estimated monitors (={nof_monitors}) "
-                  + f"has high uncertainty (={uncertainty})")
-
-  return nof_monitors
-
-
-def get_max_a_size_for_display(orientation='landscape', nof_monitors='auto',
-                               units='inches'):
+def get_max_a_size_for_display(orientation='landscape', units='inches', monitor=-1):
   """
   get the maximum size with A-ratio that can be displayed
   """
-  wfigmax, hfigmax = get_screen_dims(units=units)
+  _, hfigmax = get_screen_dims(units=units, monitor=monitor)
   # check if there are multiple monitors
 
-  if isinstance(nof_monitors, str) and nof_monitors == 'auto':
-    nof_monitors = int(0.5 + np.log2(wfigmax/hfigmax))
-
-  wfigmax /= nof_monitors
   wA0, hA0 = paper_A_dimensions(0, units=units, orientation=orientation)
 
   # ratio for the conversion of max height to width
