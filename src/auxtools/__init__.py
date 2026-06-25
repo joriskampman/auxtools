@@ -1949,7 +1949,7 @@ def interpret_linespec(fmt):
 
 def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=False,
                   clearup_pars=None, buffer_pix=(4, 8), nrows=1, ncols=None,
-                  remove_axs_legends=True):
+                  remove_axs_legends=True, plotnow=True):
   """
   add a legend to a figure
   """
@@ -2081,19 +2081,22 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=Fal
       # remove if it actually exists
       if legobj is not None:
         legobj.remove()
-    plt.draw()
+
+    if plotnow:
+      plt.draw()
 
   # activate the settings
-  plt.show(block=False)
-  plt.draw()
-  plt.pause(1e-3)
+  if plotnow:
+    plt.show(block=False)
+    plt.draw()
+    plt.pause(1e-3)
 
   return leg
 
 
 def add_figtitles(texts, fig=None, xpos_rel=0.5, ypos_rel=1., fontsize_top=12, fontsize_sub=8,
                   fontweight_top='bold', fontweight_sub='bold', buffer_pix=4,
-                  return_handles=False):
+                  return_handles=False, plotnow=True):
   """
   add a title to a figure
   """
@@ -2155,8 +2158,10 @@ def add_figtitles(texts, fig=None, xpos_rel=0.5, ypos_rel=1., fontsize_top=12, f
   fig.subplots_adjust(top=ytop_rel)
 
   # activate the settings
-  plt.show(block=False)
-  plt.draw()
+  if plotnow:
+    plt.show(block=False)
+    plt.draw()
+    plt.pause(0.001)
 
   output_list = dy_inch
   if return_handles:
@@ -2197,7 +2202,7 @@ def get_screen_dims(units='inches', monitor=-1):
 
 def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', dy_inch='auto',
                   tighten=True, shortest_dim_mm=100., pos=('center', 'center'),
-                  monitor=-1):
+                  monitor=-1, plotnow=True):
   '''
   resize_figure sets the figure size such that the ratio for the A-format is kept, while maximizing
   the display on the screen.None
@@ -2335,24 +2340,28 @@ def resize_figure(size='optimal', fig=None, sf_a=0.9, orientation='landscape', d
                   + "Clipped with same aspect!")
 
   fig.set_size_inches(width, height, forward=True)
-  plt.draw()
-  plt.pause(1e-3)
+  if plotnow:
+    plt.draw()
+    plt.pause(1e-3)
 
   if tighten:
     fig.tight_layout()
-    plt.draw()
-    plt.pause(1e-3)
+    if plotnow:
+      plt.draw()
+      plt.pause(1e-3)
 
   # set the top position
   ytop = 1 - dy_inch/fig.get_size_inches()[1]
 
   fig.tight_layout()
-  plt.draw()
-  plt.pause(1e-3)
+  if plotnow:
+    plt.draw()
+    plt.pause(1e-3)
 
   fig.subplots_adjust(top=ytop)
-  plt.draw()
-  plt.pause(1e-3)
+  if plotnow:
+    plt.draw()
+    plt.pause(1e-3)
 
   return fig
 
