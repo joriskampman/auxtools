@@ -43,7 +43,6 @@ from matplotlib import colormaps as cm
 from matplotlib.legend import Legend
 from matplotlib.colors import to_rgb, to_rgba
 import matplotlib.colors as mcolors
-from matplotlib.cm import get_cmap
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Polygon, Circle, Rectangle, Wedge, CirclePolygon, Ellipse, \
                                FancyArrow, RegularPolygon
@@ -7389,7 +7388,7 @@ def plot_matrix(matdata, txtdata=None, ax=None, alphas=None, cmap='jetmodb', asp
     _, ax = plt.subplots(1, 1, num=figname('plot_matrix'))
 
   # convert the data to rgba values
-  f_cvals = get_cmap(cmap)
+  f_cvals = plt.get_cmap(cmap)
   # convert to scaled images (between 0 and 1)
   climdata = matdata.copy()
   if is_int:
@@ -7446,7 +7445,7 @@ def plot_matrix(matdata, txtdata=None, ax=None, alphas=None, cmap='jetmodb', asp
   # ----------- SHOW VALUES ----------------------------
   if show_values:
     # get the colormap
-    f_cvals = get_cmap(cmap)
+    f_cvals = plt.get_cmap(cmap)
 
     scaledgrays = rgb2gray(matrgbas[..., :3])
     for irow in range(nr):
