@@ -6483,7 +6483,7 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
           mark_endpoints=False, endpoints_as_text=False, endpoint_color='k',
           split_complex_vals=True, colors='jetmodb', legend=True, legend_loc='upper right',
           legkwargs=None, figtitles=None, txt_rot='auto', margins=0.01, grid=None,
-          datetime_fmt='auto', return_lobjs=False, plotfun='plot', plotnow=True, **plotkwargs):
+          datetime_fmt='auto', return_lobjs=False, plotfun='auto', plotnow=True, **plotkwargs):
   """
   a quicklook plot
 
@@ -6571,16 +6571,6 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   else:
     _, ax = plt.subplots(1, 1)
 
-  # ========= type of plot (plot, semilogx, semilogy)  ========================================
-  if plotfun == 'plot':
-    pfun = ax.plot
-  elif plotfun == 'semilogx':
-    pfun = ax.semilogx
-  elif plotfun == 'semilogy':
-    pfun = ax.semilogy
-  else:
-    raise ValueError("The value given for 'plotfun' (='{plotfun}') is not valid")
-
   # set the aspect ratio ('auto' and 'equal' are accepted)
   if aspect is not None:
     ax.set_aspect(aspect)
@@ -6636,13 +6626,16 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   if ydata.ndim == 0:
     ydata = np.array([ydata])
 
+  # ========= type of plot (plot, semilogx, semilogy)  ========================================
+
+  # overwrite
   # check if empty
   if not np.isscalar(ydata) and len(ydata) == 0:
     warnings.warn("The data set is empty!")
 
     label = kwargs.pop('label') if 'label' in kwargs else ''
 
-    lobj = pfun([], [], *format_str_list, label=label, **kwargs)[0]
+    lobj = ax.plot([], [], *format_str_list, label=label, **kwargs)[0]
     if return_lobjs:
       return ax, lobj
     return ax
@@ -6673,6 +6666,25 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
       txt_rot = 45.
     else:
       txt_rot = 0.
+
+  # pdb.set_trace()
+  pfun = ax.plot
+  if plotfun == 'auto':
+    # check the xdata
+    logxs = np.log10(xdata[0])
+    logspace = np.spacing(np.min(logxs))
+    logstd = np.std(np.diff(logxs))
+    if logstd < logspace:
+      print("[qplot] xdata analysis resulted in ax.semilogx() function to be used!")
+      pfun = ax.semilogx
+  elif plotfun == 'plot':
+    pass
+  elif plotfun == 'semilogx':
+    pfun = ax.semilogx
+  elif plotfun == 'semilogy':
+    pfun = ax.semilogy
+  else:
+    raise ValueError("The value given for 'plotfun' (='{plotfun}') is not valid")
 
   # special treatment for x-axis dates
   is_datetime_data = True if isinstance(np.squeeze(xdata).item(0), dtm.datetime) else False
