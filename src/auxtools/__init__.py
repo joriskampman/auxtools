@@ -126,6 +126,7 @@ class DimensionError(Exception):
 
 
 # FUNCTIONS
+
 def rotation_matrix_from_axis_and_angle(rotvec, theta):
   """ generate a rotation matrix from an axis and an angle
 
@@ -387,7 +388,7 @@ def position_figure(fig=None, xpos='center', ypos='center', width=0.5, height=0.
   wfig, hfig, xfig, yfig = get_position_in_pixels(xpos, ypos, width, height, monitor=monitor)
 
   print(wfig, hfig, xfig, yfig)
-  mngr = fig.canvas.manager # type: ignore
+  mngr = fig.canvas.manager
 
   # # get the toolbarheight
   # toolbar = mngr.window.findChildren(QToolBar)[-1]  # there is expected to be only 1
@@ -1224,8 +1225,8 @@ def check_sockets(iprange, port=5025, timeout=1., sufrange=np.r_[2:255]):
                            a list containing the addresses with which connection could be
                            established
     """
-    # pylint: disable=C0415
-    import pyvisa
+    # pylint: disable=C0415,E0401
+    import pyvisa # type: ignore
     import socket
 
     ipparts = iprange.split('.')
@@ -1281,7 +1282,7 @@ def popup(message, title="Next up", add_title_to_message=True, silence=False, ye
   answer = None
   if not silence:
     if yesno:
-      answer = tk.messagebox.askyesno(title, message)
+      answer = tk.messagebox.askyesno(title, message)  # type: ignore
     else:
       answer = tk.messagebox.showinfo(title=title, message=message, parent=root)
   else:
@@ -2004,7 +2005,7 @@ def add_figlegend(legdata=None, labels=None, fig=None, dy_inch=None, clearup=Fal
     labels = [labels]
 
   # check for valid labels
-  tf_labels = [False if lab.startswith('_') else True for lab in labels]
+  tf_labels = [False if lab.startswith('_') or len(lab) == 0 else True for lab in labels]
   labels = np.array(labels)[tf_labels].tolist()
   legdata = np.array(legdata)[tf_labels].tolist()
 
@@ -8340,7 +8341,7 @@ intpkwargs_dict = {'': dict(),
                    '_': dict(interpolation='nearest')}
 
 for namebase, fcmap in cmaps_list:
-  print(" - {}:".format(namebase))
+  print(f" - {namebase}:")
   for ikey, ikwargs in invkwargs_dict.items():
     for nkey, nkwargs in negkwargs_dict.items():
       for intpkey, intpkwargs in intpkwargs_dict.items():
@@ -8354,4 +8355,3 @@ print("  n: negate colors")
 print("  _: no linear interpolation; nearest neighbour interpolation\n")
 
 set_autolimit_mode()
-
