@@ -6672,12 +6672,26 @@ def qplot(*args, center=False, aspect=None, rot_deg=0., thin='auto',
   pfun = ax.plot
   if plotfun == 'auto':
     # check the xdata
+    print("plotfunc keyword is 'auto'")
+
     logxs = np.log10(xdata[0])
-    logspace = np.spacing(np.min(logxs))
     logstd = np.std(np.diff(logxs))
-    if logstd < logspace:
+    if np.isclose(0., logstd):
+      is_semilogx = True
       print("[qplot] xdata analysis resulted in ax.semilogx() function to be used!")
       pfun = ax.semilogx
+    else:
+      is_semilogx = False
+
+    logys = np.log10(ydata[0])
+    logstd = np.std(np.diff(logys))
+    if np.isclose(0., logstd):
+        print("[qplot] ydata analysis resulted in ax.semilogy() function to be used!")
+        if is_semilogx:
+          pfun = ax.loglog
+        else:
+          pfun = ax.semilogy
+
   elif plotfun == 'plot':
     pass
   elif plotfun == 'semilogx':
