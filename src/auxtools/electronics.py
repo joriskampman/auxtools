@@ -14,6 +14,22 @@ import numpy as np
 def calc_group_impedances(group, makeplot=False, ax=None):
   """ check if this is a set to process, or redo if it is another branch
 
+  arguments:
+  ----------
+  group : indication on how the system is grouped
+          np.ndarray -> this is a single element in series
+          list -> series of elements (maximum impedance counts)
+          tuple -> parallel elements (minimum counts)
+
+  makeplot : bool, default=False
+             plot the impedance list
+  ax : axes, default=None
+       when makeplot=True these can be the axes
+
+  returns:
+  --------
+  impedances: np.ndarray
+              an array of impedance (complex) values
   """
   if makeplot:
     ax = qplot(ax)
@@ -184,7 +200,7 @@ def plot_bode_single_freq(freqs, btype, fc, order=1, Q=0.5, inverted=False, gain
 def plot_bode_precalc(freqs, amps, phss, axs=None, freqs2plot=None, phss2plot=None,
                       amps2plot=None, color='r', **plotkwargs):
   """ calculate bode plots that are already precalculated; the amplitudes and phases are already
-  known. Particularly usefull for compount bode plots
+  known. Particularly useful for compound bode plots
 
 
   """
